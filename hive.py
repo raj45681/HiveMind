@@ -1,0 +1,217 @@
+"""Portable CLI entry point. No agent/model runs unless 'run' is explicitly used."""
+import argparse
+import asyncio
+import getpass
+import json
+import os
+import re
+import shutil
+import socket
+import sys
+from pathlib import Path
+
+from hivemind.store import Hive, atomic_write
+from hivemind.transport import backend, connection
+
+ROOT = Path(__file__).resolve().parent
+
+
+def parser():
+    p = argparse.ArgumentParser(description="HiveMind — Obsidian memory and agent coordination")
+    p.add_argument("--root", type=Path, default=ROOT)
+    sub = p.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("init", help="Initialize local coordinator and note index")
+    sub.add_parser("doctor", help="Check local tools and coordinator access without model usage")
+    sub.add_parser("status", help="List tasks from the selected coordinator")
+    sub.add_parser("index", help="Refresh the local Markdown search index")
+    sub.add_parser("export", help="Refresh generated Obsidian task views")
+    sub.add_parser("offline", help="Use only this folder; ignore hosted URLs and preserve existing remote data")
+    s = sub.add_parser("backup", help="Create a portable local bundle with Markdown and a consistent task database snapshot")
+    s.add_argument("file", type=Path)
+    for name in ("search", "read"):
+        s = sub.add_parser(name)
+        s.add_argument("value")
+    s = sub.add_parser("create", help="Queue a task from a JSON file")
+    s.add_argument("file", type=Path)
+    s = sub.add_parser("run", help="Execute ONE task using the assigned CLI/account; consumes agent usage")
+    s.add_argument("task")
+    s.add_argument("--dry-run", action="store_true")
+    s = sub.add_parser("requeue", help="Requeue blocked/failed task after inspecting its old worker/worktree")
+    s.add_argument("task")
+    s = sub.add_parser("project-add", help="Map a shared project ID to a local repository")
+    s.add_argument("name")
+    s.add_argument("path", type=Path)
+    s = sub.add_parser("attach", help="Enable automatic HiveMind workflow in a project, preserving existing rules")
+    s.add_argument("path", type=Path, nargs="?", default=Path.cwd())
+    s.add_argument("--name", default="", help="Shared project ID; defaults to the directory name or existing enrollment")
+    s.add_argument("--dry-run", action="store_true")
+    s.add_argument("--skip-register", action="store_true", help="Use existing MCP registration without changing CLI configuration")
+    s = sub.add_parser("connect", help="Join a coordinator; token is entered privately")
+    s.add_argument("--url", required=True)
+    s.add_argument("--token-file", type=Path)
+    sub.add_parser("disconnect", help="Switch this device back to its own local coordinator")
+    s = sub.add_parser("cloud-connect", help="Connect this device to private online memory; key entered privately")
+    s.add_argument("--url", required=True)
+    s.add_argument("--token-file", type=Path)
+    sub.add_parser("cloud-disconnect", help="Disconnect cloud memory without deleting stored data")
+    s = sub.add_parser("enroll-cloud", help="Connect to the bundle's default cloud once per device")
+    s.add_argument("--url", default="")
+    sub.add_parser("memory-import", help="Copy vault notes to cloud, preserving existing conflicting notes")
+    s = sub.add_parser("memory-sync", help="Pull cloud notes into Obsidian without overwriting local edits")
+    s.add_argument("--push", action="store_true", help="Also push edits to previously mirrored notes using revision checks")
+    sub.add_parser("memory-flush", help="Retry queued memory updates without invoking an agent")
+    s = sub.add_parser("memory-outbox", help="Inspect locally pending/conflicting updates")
+    s.add_argument("--discard", default="", help="Discard one explicitly selected local outbox entry by ID")
+    s = sub.add_parser("serve", help="MCP via stdio (default) or authenticated loopback HTTP")
+    s.add_argument("--http", action="store_true")
+    s.add_argument("--port", type=int, default=8787)
+    s.add_argument("--hostname", default="", help="Private HTTPS hostname used by your reverse proxy")
+    return p
+
+
+def save_config(root, config):
+    atomic_write(root / "hive.local.json", json.dumps(config, indent=2) + "\n")
+
+
+async def execute(args):
+    root = args.root.resolve()
+    url, token, config = connection(root)
+    if args.cmd == "offline":
+        previous = root / "runtime" / "connection-before-offline.json"
+        if not config.get("offline"):
+            atomic_write(previous, json.dumps(config, indent=2) + "\n")
+        config["offline"] = True
+        config.pop("memory_url", None)
+        config.pop("coordinator_url", None)
+        save_config(root, config)
+        return {"mode": "local-only", "folder": str(root), "memory": str(root / "vault"),
+                "note": "Cloud data is preserved. This folder is now the authority; no automatic cloud synchronization."}
+    if args.cmd == "backup":
+        from scripts.package import build_bundle
+        return build_bundle(root, args.file.resolve(), include_state=True)
+    if args.cmd == "enroll-cloud":
+        if config.get("offline") and not args.url:
+            return {"memory": "local", "enrollment": "offline mode; no cloud connection"}
+        defaults = root / "cloud-defaults.json"
+        wanted = args.url or os.getenv("HIVE_MEMORY_URL", "") or (json.loads(defaults.read_text()).get("memory_url", "") if defaults.exists() else "")
+        if not wanted or config.get("memory_url", "").rstrip("/") == wanted.rstrip("/"):
+            return {"memory": config.get("memory_url", "local"), "enrollment": "unchanged"}
+        args.cmd, args.url, args.token_file = "cloud-connect", wanted, None
+    if args.cmd == "cloud-connect":
+        from hivemind.cloud import CloudMemory
+        key = args.token_file.read_text().strip() if args.token_file else getpass.getpass("Private cloud connection key (hidden): ")
+        cloud = CloudMemory(root, args.url, key)
+        await cloud.request("hive_context", {})
+        path = root / "runtime" / "cloud-token"
+        atomic_write(path, key)
+        path.chmod(0o600)
+        config["memory_url"] = cloud.url
+        config["offline"] = False
+        save_config(root, config)
+        return {"memory_connected": cloud.url, "note": "Future Hive tool calls use online memory. Existing task execution settings are preserved."}
+    if args.cmd == "cloud-disconnect":
+        config.pop("memory_url", None)
+        save_config(root, config)
+        return {"memory": "local", "note": "Cloud data and device outbox remain intact."}
+    if args.cmd.startswith("memory-"):
+        from hivemind.cloud import CloudMemory, cloud_settings
+        from hivemind.sync import import_vault, mirror
+        memory_url, memory_key = cloud_settings(root)
+        if not memory_url:
+            raise ValueError("Connect to cloud memory first using cloud-connect")
+        cloud = CloudMemory(root, memory_url, memory_key)
+        if args.cmd == "memory-import":
+            return await import_vault(root, cloud)
+        if args.cmd == "memory-sync":
+            return await mirror(root, cloud, args.push)
+        if args.cmd == "memory-flush":
+            return {"outbox": await cloud.flush(limit=100)}
+        if args.cmd == "memory-outbox":
+            with cloud.connect() as c:
+                if args.discard:
+                    c.execute("DELETE FROM outbox WHERE id=? AND endpoint=?", (args.discard, cloud.endpoint))
+                rows = c.execute("SELECT id,args,status,error,created FROM outbox WHERE endpoint=?", (cloud.endpoint,)).fetchall()
+            return [{"id": r["id"], "path": json.loads(r["args"]).get("path"), "status": r["status"], "error": r["error"], "created": r["created"]} for r in rows]
+    if args.cmd == "attach":
+        from hivemind.project import attach
+        return await attach(root, args.path, args.name, args.skip_register, args.dry_run)
+    if args.cmd == "connect":
+        token = args.token_file.read_text().strip() if args.token_file else getpass.getpass("Coordinator token (hidden): ")
+        async with backend(root, args.url, token, respect_offline=False) as api:
+            await api.call("task_list", limit=1)
+        path = root / "runtime" / "client-token"
+        atomic_write(path, token)
+        path.chmod(0o600)
+        config["coordinator_url"] = args.url
+        config["offline"] = False
+        save_config(root, config)
+        return {"connected": args.url, "note": "Restart agent sessions to reload their HiveMind MCP bridge."}
+    if args.cmd == "disconnect":
+        config.pop("coordinator_url", None)
+        save_config(root, config)
+        return {"mode": "local", "note": "Remote data remains on the coordinator."}
+    if args.cmd == "project-add":
+        if not re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", args.name) or not args.path.is_dir():
+            raise ValueError("Use a simple project ID and an existing directory")
+        config.setdefault("projects", {})[args.name] = str(args.path.resolve())
+        save_config(root, config)
+        return {"project": args.name, "path": str(args.path.resolve())}
+    if args.cmd in {"init", "index", "export", "requeue"}:
+        if url:
+            raise ValueError("This operation is local to the authority. Run it on the coordinator device.")
+        hive = Hive(root)
+        if args.cmd == "init":
+            from hivemind.seed import seed_vault
+            seed_vault(root)
+            config.setdefault("machine", socket.gethostname())
+            config.setdefault("projects", {"hivemind": str(root)})
+            save_config(root, config)
+            hive.export()
+            return hive.index()
+        return {"index": hive.index, "export": hive.export,
+                "requeue": lambda: hive.requeue(args.task)}[args.cmd]()
+    async with backend(root, url, token) as api:
+        if args.cmd == "doctor":
+            from hivemind.cloud import cloud_settings
+            return {"coordinator": url or "local", "machine": config.get("machine", socket.gethostname()),
+                    "memory": cloud_settings(root)[0] or url or "local",
+                    "agents": {name: shutil.which(exe) for name, exe in {"codex": "codex", "grok": "grok", "antigravity": "agy"}.items()},
+                    "task_access": "ok" if isinstance(await api.call("task_list", limit=1), list) else "unexpected",
+                    "model_calls": 0}
+        if args.cmd == "status":
+            return await api.call("task_list")
+        if args.cmd == "search":
+            return await api.call("memory_search", query=args.value)
+        if args.cmd == "read":
+            return await api.call("note_read", path=args.value)
+        if args.cmd == "create":
+            return await api.call("task_create", spec=json.loads(args.file.read_text(encoding="utf-8-sig")))
+        if args.cmd == "run":
+            from hivemind.worker import run_task
+            return await run_task(root, api, args.task, config, args.dry_run)
+
+
+def main():
+    args = parser().parse_args()
+    if args.cmd == "serve":
+        from hivemind.server import BearerAuth, build_server, server_token
+        url, token, _ = connection(args.root)
+        if args.http and url:
+            raise ValueError("A joined device cannot become a second authority; use stdio bridge")
+        server = build_server(args.root, url, token, args.hostname)
+        if args.http:
+            import uvicorn
+            app = BearerAuth(server.streamable_http_app(), server_token(args.root))
+            uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+        else:
+            server.run(transport="stdio")
+        return
+    print(json.dumps(asyncio.run(execute(args)), indent=2, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (ValueError, OSError) as exc:
+        print("HiveMind: " + str(exc), file=sys.stderr)
+        sys.exit(1)

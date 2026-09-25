@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "project": "hivemind",
+  "workflow": "automatic",
+  "memory_root": "03-Projects/hivemind"
+}

@@ -1,0 +1,25 @@
+.venv/
+__pycache__/
+*.pyc
+runtime/
+.worktrees/
+hive.local.json
+.env
+dist/
+vault/.obsidian/workspace*.json
+/.hivemind/local.json
+
+# Personal memory and the retired hosting project are never source artifacts.
+/vault/
+/cloud/
+/cloud-defaults.json
+.env.*
+!.env.example
+*.db
+*.db-shm
+*.db-wal
+*.sqlite*
+*.pem
+*.key
+.DS_Store
+Thumbs.db

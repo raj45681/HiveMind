@@ -1,0 +1,11 @@
+{
+  "title": "Inspect HiveMind architecture",
+  "objective": "Review the HiveMind source and identify up to three concrete reliability improvements. Make no file changes.",
+  "project": "hivemind",
+  "kind": "analysis",
+  "agent": "codex",
+  "access": "read",
+  "acceptance": ["Findings cite source files and explain impact", "No files are modified"],
+  "memory": ["00-System/HIVE.md"],
+  "max_seconds": 300
+}

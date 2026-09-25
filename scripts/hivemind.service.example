@@ -1,0 +1,14 @@
+[Unit]
+Description=HiveMind private coordinator
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/HiveMind
+ExecStart=%h/HiveMind/.venv/bin/python %h/HiveMind/hive.py serve --http --hostname REPLACE_WITH_PRIVATE_HTTPS_HOSTNAME
+Restart=on-failure
+RestartSec=5
+UMask=0077
+
+[Install]
+WantedBy=default.target
