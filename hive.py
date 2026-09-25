@@ -24,6 +24,7 @@ def parser():
     sub.add_parser("doctor", help="Check local tools and coordinator access without model usage")
     sub.add_parser("status", help="List tasks from the selected coordinator")
     sub.add_parser("index", help="Refresh the local Markdown search index")
+    sub.add_parser("semantic-setup", help="Install the optional local semantic memory model")
     sub.add_parser("export", help="Refresh generated Obsidian task views")
     s = sub.add_parser("code-setup", help="Install optional isolated Graphify and index an enrolled project")
     s.add_argument("project")
@@ -107,6 +108,11 @@ def save_config(root, config):
 async def execute(args):
     root = args.root.resolve()
     url, token, config = connection(root)
+    if args.cmd == "semantic-setup":
+        if url:
+            raise ValueError("Install semantic recall on the coordinator device that holds the vault")
+        from hivemind.semantic import setup
+        return setup(root)
     if args.cmd.startswith("code-"):
         from hivemind.code_index import enable, operate
         if args.cmd == "code-setup":
@@ -233,12 +239,15 @@ async def execute(args):
         if args.cmd == "doctor":
             from hivemind.cloud import cloud_settings
             from hivemind.code_index import installed
+            from hivemind.semantic import ready as semantic_ready, MODEL as semantic_model
             return {"coordinator": url or "local", "machine": config.get("machine", socket.gethostname()),
                     "memory": cloud_settings(root)[0] or url or "local",
                     "agents": {name: shutil.which(exe) for name, exe in {"codex": "codex", "grok": "grok", "antigravity": "agy"}.items()},
                     "task_access": "ok" if isinstance(await api.call("task_list", limit=1), list) else "unexpected",
                     "code_index": {"enabled_projects": config.get("graphify_projects", []),
                                    "installed": installed(root) if config.get("graphify_projects") else False},
+                    "semantic_memory": {"installed": semantic_ready(root), "model": semantic_model if semantic_ready(root) else None,
+                                        "authority": url or "local"},
                     "model_calls": 0}
         if args.cmd == "status":
             return await api.call("task_list")

@@ -17,6 +17,7 @@ def main():
     parser.add_argument("--skip-register", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--with-graphify", action="store_true", help="Install and enable optional local code graphs (Python 3.12+)")
+    parser.add_argument("--with-semantic", action="store_true", help="Install local semantic memory search (one-time model download)")
     args = parser.parse_args()
     if sys.version_info < (3, 11):
         raise ValueError("Install Python 3.11 or newer, then run this command again")
@@ -57,6 +58,12 @@ def main():
             manifest = args.project.resolve() / ".hivemind/project.json"
             project_id = json.loads(manifest.read_text(encoding="utf-8"))["project"]
             subprocess.run([str(target), str(ROOT / "hive.py"), "code-setup", project_id], check=True)
+    if args.with_semantic:
+        if args.dry_run:
+            print("Preview: would install the local semantic model; Markdown stays authoritative.")
+        else:
+            print("Preparing local semantic recall; first setup downloads an isolated model...", flush=True)
+            subprocess.run([str(target), str(ROOT / "hive.py"), "semantic-setup"], check=True)
     print(f"Shared HiveMind folder: {ROOT}\nObsidian vault: {ROOT / 'vault'}")
 
 

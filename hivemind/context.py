@@ -6,6 +6,7 @@ import re
 import time
 
 AGENTS = {"codex": "Codex", "grok": "Grok", "antigravity": "Antigravity"}
+STOPWORDS = frozenset("a an and are as at be been by can did do does for from had has have how i if in is it my of on or our the their there this to was were what when where who why with would you your".split())
 
 
 def validate_project(project, required=False):
@@ -44,7 +45,7 @@ def excerpt(text, byte_limit, query=""):
 def search(hive, query, limit=5, archive=False, project=""):
     validate_project(project)
     hive.index()
-    words = re.findall(r"\w+", query, flags=re.UNICODE)[:20]
+    words = [word for word in re.findall(r"\w+", query, flags=re.UNICODE) if word.lower() not in STOPWORDS][:20]
     if not words:
         return []
     match = " OR ".join('"' + word + '"' for word in words)
@@ -70,7 +71,49 @@ def search(hive, query, limit=5, archive=False, project=""):
         results.append((score, row['path'], {"path": row['path'], "title": row['title'],
                         "excerpt": text, "revision": row['revision'], "omitted": omitted}))
     results.sort(key=lambda entry: (-entry[0], entry[1]))
-    return [item for _, _, item in results[:max(1, min(limit, 5))]]
+    lexical = [item for _, _, item in results]
+    try:
+        from .semantic import recall
+        semantic = recall(hive, query, project=project, archive=archive)
+    except Exception as exc:
+        # This optional local index must never block access to Markdown or FTS.
+        try:
+            (hive.runtime / 'semantic-last-error.log').write_text(f'{type(exc).__name__}: {exc}\n', encoding='utf-8')
+        except OSError:
+            pass
+        semantic = []
+    if not semantic:
+        return lexical[:max(1, min(limit, 5))]
+    candidates = {item['path']: item for item in lexical}
+    scores = {item['path']: 1 / (60 + rank) for rank, item in enumerate(lexical, 1)}
+    missing = [path for _, path, _ in semantic if path not in candidates]
+    if missing:
+        with hive.connect() as c:
+            found = c.execute(f"SELECT path,title,content,revision FROM notes WHERE path IN ({','.join('?' for _ in missing)})", missing).fetchall()
+        semantic_rows = {row['path']: row for row in found}
+    else:
+        semantic_rows = {}
+    # Local BGE cosine scores are high even for unrelated text. Require both an
+    # absolute match and proximity to the best semantic hit.
+    minimum = max(0.60, semantic[0][0] - 0.05)
+    for rank, (similarity, path, passage) in enumerate(semantic, 1):
+        if similarity < minimum:
+            continue
+        scores[path] = scores.get(path, 0) + 1 / (60 + rank)
+        if path not in candidates:
+            row = semantic_rows.get(path)
+            if row is None:
+                scores.pop(path, None)
+                continue
+            text, omitted = excerpt(passage, 600, query)
+            candidates[path] = {'path': path, 'title': row['title'], 'excerpt': text,
+                                'revision': row['revision'], 'omitted': omitted or passage != row['content']}
+        elif not set(re.findall(r'\w+', query.lower())) & set(re.findall(r'\w+', candidates[path]['excerpt'].lower())):
+            text, _ = excerpt(passage, 600, query)
+            candidates[path]['excerpt'] = text
+            candidates[path]['omitted'] = True
+    ordered = sorted(candidates, key=lambda path: (-scores.get(path, 0), path))
+    return [candidates[path] for path in ordered[:max(1, min(limit, 5))]]
 
 
 def context(hive, agent="codex", project="", query="", budget_tokens=None):
@@ -92,7 +135,7 @@ def context(hive, agent="codex", project="", query="", budget_tokens=None):
                          "method": "UTF-8 JSON bytes / 4; not an exact model tokenizer", "omitted_items": 0}}
     seen = set()
 
-    def add(section, name, allowance, singleton=False):
+    def add(section, name, allowance, singleton=False, preferred=None):
         path = hive.note_path(name)
         if name.lower() in seen or not path.exists():
             return
@@ -103,7 +146,10 @@ def context(hive, agent="codex", project="", query="", budget_tokens=None):
         card = {"path": path.relative_to(hive.vault).as_posix(), "revision": hashlib.sha256(raw).hexdigest(),
                 "text": "", "omitted": False}
         available = min(allowance, cap - size(result) - size(card) - 64)
-        text, omitted = excerpt(raw.decode('utf-8'), max(0, available), query if section == 'relevant' else '')
+        source = preferred if preferred is not None and card['revision'] == preferred['revision'] else None
+        text, omitted = excerpt(source['excerpt'] if source else raw.decode('utf-8'), max(0, available),
+                                query if section == 'relevant' else '')
+        omitted = omitted or source is not None
         if not text:
             result['budget']['omitted_items'] += 1
             return
@@ -161,7 +207,7 @@ def context(hive, agent="codex", project="", query="", budget_tokens=None):
     add('instructions', f'05-Agents/{AGENTS[agent]}.md', instruction_allowance)
     if query:
         for match in search(hive, query, limit=5, project=project):
-            add('relevant', match['path'], int(cap * .10))
+            add('relevant', match['path'], int(cap * .10), preferred=match)
             if len(result['relevant']) == 3:
                 break
     # Include the envelope itself in the estimate, including UTF-8 expansion and JSON escapes.

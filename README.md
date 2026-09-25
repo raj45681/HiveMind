@@ -37,9 +37,15 @@ agents. The optional CLI wrapper also captures Git state when an agent exits.
 Agents query it through one bounded HiveMind tool, with no indexing model or API key.
 [Explore local code graphs →](docs/code-graphs.md)
 
-> **Local memory, normal agent accounts.** HiveMind needs no hosting subscription,
-> embedding service, or additional model. Your AI agents still use their own
-> services and account allowances. Retrieved memory uses normal context tokens.
+**Optional semantic recall:** a local embedding model can find a past solution even
+when your new question uses different words. It joins keyword search inside the
+existing memory tools; the vault remains plain Markdown.
+[Explore semantic memory →](docs/semantic-memory.md)
+
+> **Local memory, normal agent accounts.** HiveMind needs no hosting subscription
+> or embedding service. Semantic recall is an optional local model downloaded once.
+> Your AI agents still use their own services and account allowances. Retrieved
+> memory uses normal context tokens.
 
 ## Quick start
 
@@ -72,6 +78,17 @@ To include **local Graphify code indexing** (Python 3.12+, first setup downloads
 ```cmd
 "%USERPROFILE%\HiveMind\hivemind.cmd" "D:\Projects\My App" --with-graphify
 ```
+
+To include **local semantic memory** (first setup downloads an isolated model):
+
+```cmd
+"%USERPROFILE%\HiveMind\hivemind.cmd" "D:\Projects\My App" --with-semantic
+```
+
+Once installed on the coordinator device, semantic recall works for **every
+enrolled project** through the existing `memory_search` and `hive_context` tools.
+No agent skill or extra MCP tool is needed. Combine both flags if you want
+Graphify as well. [Setup, privacy and limits →](docs/semantic-memory.md)
 
 Run the same command on each new device. Source-only graphs are rebuilt locally;
 your preferences and handoffs remain in the HiveMind vault. Memory-only setup still
@@ -154,7 +171,9 @@ flowchart TB
 
 **Small context by design:** configurable briefs (default 1800 estimated tokens),
 complete excerpts ranked by project, relevance and freshness, revision-checked writes,
-and no model-driven queue polling. Search and coordination make no inference calls;
+and no model-driven queue polling. Optional semantic search runs local embedding
+inference only; it makes no paid agent or hosted API calls. Other search and
+coordination remain deterministic;
 reading the returned text still consumes context. Inferred tastes stay separate
 from confirmed preferences. Current instructions always take precedence over memory.
 
@@ -181,7 +200,7 @@ It does not run continuously or after every message. Agents are instructed to us
 it for code relationships; preferences and handoffs use the memory/session tools.
 [Invocation details →](docs/code-graphs.md#when-graphify-runs)
 
-**Token overhead:** local indexing makes no inference calls. Tool definitions,
+**Token overhead:** semantic indexing uses your CPU, not agent tokens. Tool definitions,
 project instructions and returned text still add context to the agent. The 1,800-token
 memory brief and 1,000-token code-query defaults are approximate response ceilings,
 not fixed per-task charges or limits on the entire conversation. Actual usage depends
@@ -312,6 +331,7 @@ Real vendor inference and physical Linux behavior need separate smoke tests.
 | :--- | :--- |
 | [Budgeted context & session handoffs](docs/context-and-sessions.md) | Smaller briefs, checkpoints, resume, and optional CLI exit capture |
 | [Optional local code graphs](docs/code-graphs.md) | Graphify setup, bounded queries, supported files and fallback behavior |
+| [Optional semantic memory](docs/semantic-memory.md) | Paraphrase recall, one-time model setup, local index and limits |
 | [New devices & optional remote coordination](docs/new-device.md) | Moving a local Hive or explicitly connecting a private coordinator |
 | [Optional cloud bridge](docs/cloud-memory.md) | Legacy cloud integration; inactive in local mode |
 | [Implementation references](docs/sources.md) | Protocol and CLI references |
