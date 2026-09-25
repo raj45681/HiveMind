@@ -28,6 +28,11 @@ It gives each agent a small, relevant brief and a place to save what it learns.
 | Confirmed preferences across projects | Tasks with explicit ownership | Local SQLite task history |
 | Project decisions and verified solutions | Concise, persistent handoffs | Portable backups without hosting |
 
+**Now with budgeted briefs and resumable sessions:** select a context budget,
+retrieve complete project-aware excerpts, and carry structured checkpoints between
+agents. The optional CLI wrapper also captures Git state when an agent exits.
+[Explore context & sessions →](docs/context-and-sessions.md)
+
 > **Local memory, normal agent accounts.** HiveMind needs no hosting subscription,
 > embedding service, or additional model. Your AI agents still use their own
 > services and account allowances. Retrieved memory uses normal context tokens.
@@ -132,7 +137,8 @@ flowchart TB
 | **Finish work** | Update project state and leave a concise handoff for the next agent. |
 | **Switch projects** | Reuse confirmed preferences; search for applicable past solutions. Project choices stay scoped. |
 
-**Small context by design:** SQLite search, bounded excerpts, revision-checked writes,
+**Small context by design:** configurable briefs (default 1800 estimated tokens),
+complete excerpts ranked by project, relevance and freshness, revision-checked writes,
 and no model-driven queue polling. Search and coordination make no inference calls;
 reading the returned text still consumes context. Inferred tastes stay separate
 from confirmed preferences. Current instructions always take precedence over memory.
@@ -160,6 +166,11 @@ HiveMind/
 Open **`vault/` as an Obsidian vault**, then open `START`. No community plugin is
 required, and Obsidian does not need to be running. Edit `00-System/Personality.md`
 and `00-System/Working-Style.md` to define how your agents should work.
+
+Session checkpoints retain completed work, reported checks, blockers and next
+steps in SQLite, with a Markdown view under each project's `Sessions/` directory.
+Concurrent updates require revision checks, and a CLI exit alone is never treated
+as verified completion. [Session behavior and limitations](docs/context-and-sessions.md).
 
 The repository ships generic templates. First setup creates missing local notes
 without replacing your edits. **Your real vault, credentials, databases, device
@@ -201,9 +212,22 @@ Run these from your HiveMind folder. On Linux substitute `.venv/bin/python`.
 .venv\Scripts\python.exe hive.py status
 .venv\Scripts\python.exe hive.py search "authentication"
 .venv\Scripts\python.exe hive.py offline
+.venv\Scripts\python.exe hive.py context myapp --query "login" --budget 1000
+.venv\Scripts\python.exe hive.py resume myapp
 ```
 
 The installer supports `--dry-run`, `--name myapp`, and `--skip-register`.
+
+For an explicitly launched interactive session with automatic exit capture:
+
+```cmd
+.venv\Scripts\python.exe hive.py session-run myapp codex
+```
+
+This uses the agent's normal account usage. Substitute `grok` or `antigravity`.
+Normal agent launches still work; their handoff capture depends on following the
+installed instructions. The context budget is an estimate for the returned brief,
+not a hard limit on the agent's full conversation or account usage.
 
 <details>
 <summary><strong>Optional: explicitly queue and run an agent task</strong></summary>
@@ -241,6 +265,7 @@ Real vendor inference and physical Linux behavior need separate smoke tests.
 
 | Guide | Read it for |
 | :--- | :--- |
+| [Budgeted context & session handoffs](docs/context-and-sessions.md) | Smaller briefs, checkpoints, resume, and optional CLI exit capture |
 | [New devices & optional remote coordination](docs/new-device.md) | Moving a local Hive or explicitly connecting a private coordinator |
 | [Optional cloud bridge](docs/cloud-memory.md) | Legacy cloud integration; inactive in local mode |
 | [Implementation references](docs/sources.md) | Protocol and CLI references |

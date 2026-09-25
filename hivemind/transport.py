@@ -8,6 +8,7 @@ TOOLS = {
     "memory_write": "write_memory", "task_create": "create_task", "task_get": "get_task",
     "task_list": "list_tasks", "task_claim": "claim", "task_heartbeat": "heartbeat",
     "task_finish": "finish", "message_send": "send", "message_inbox": "inbox", "memory_catalog": "catalog",
+    "session_start": "session_start", "session_checkpoint": "session_checkpoint", "session_resume": "session_resume",
 }
 
 

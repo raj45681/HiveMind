@@ -25,6 +25,28 @@ def parser():
     sub.add_parser("status", help="List tasks from the selected coordinator")
     sub.add_parser("index", help="Refresh the local Markdown search index")
     sub.add_parser("export", help="Refresh generated Obsidian task views")
+    s = sub.add_parser("context", help="Read a budgeted, project-aware brief without inference")
+    s.add_argument("project")
+    s.add_argument("--agent", choices=("codex", "grok", "antigravity"), default="codex")
+    s.add_argument("--query", default="")
+    s.add_argument("--budget", type=int)
+    s = sub.add_parser("context-budget", help="Set the default estimated-token budget (512-8192)")
+    s.add_argument("tokens", type=int)
+    s = sub.add_parser("session-start", help="Start a durable session without launching an agent")
+    s.add_argument("project")
+    s.add_argument("--agent", choices=("codex", "grok", "antigravity"), default="codex")
+    s.add_argument("--goal", required=True)
+    s = sub.add_parser("checkpoint", help="Save structured JSON using the last session revision")
+    s.add_argument("session")
+    s.add_argument("file", type=Path)
+    s.add_argument("--revision", type=int, required=True)
+    s = sub.add_parser("resume", help="Read a project's most recent session; does not launch agents")
+    s.add_argument("project")
+    s.add_argument("--session", default="")
+    s = sub.add_parser("session-run", help="Explicitly launch an interactive agent with durable exit capture; uses its account")
+    s.add_argument("project")
+    s.add_argument("agent", choices=("codex", "grok", "antigravity"))
+    s.add_argument("agent_args", nargs=argparse.REMAINDER)
     sub.add_parser("offline", help="Use only this folder; ignore hosted URLs and preserve existing remote data")
     s = sub.add_parser("backup", help="Create a portable local bundle with Markdown and a consistent task database snapshot")
     s.add_argument("file", type=Path)
@@ -76,6 +98,14 @@ def save_config(root, config):
 async def execute(args):
     root = args.root.resolve()
     url, token, config = connection(root)
+    if args.cmd == "context-budget":
+        if url:
+            raise ValueError("Set the default on the coordinator device, or pass context --budget for this call")
+        if not 512 <= args.tokens <= 8192:
+            raise ValueError("Context budget must be 512-8192 estimated tokens")
+        config["context_budget_tokens"] = args.tokens
+        save_config(root, config)
+        return {"context_budget_tokens": args.tokens, "scope": "local authority; per-call overrides remain available"}
     if args.cmd == "offline":
         previous = root / "runtime" / "connection-before-offline.json"
         if not config.get("offline"):
@@ -171,6 +201,19 @@ async def execute(args):
         return {"index": hive.index, "export": hive.export,
                 "requeue": lambda: hive.requeue(args.task)}[args.cmd]()
     async with backend(root, url, token) as api:
+        if args.cmd == "context":
+            return await api.call("hive_context", agent=args.agent, project=args.project,
+                                  query=args.query, budget_tokens=args.budget)
+        if args.cmd == "session-start":
+            return await api.call("session_start", project=args.project, agent=args.agent, goal=args.goal)
+        if args.cmd == "checkpoint":
+            return await api.call("session_checkpoint", ident=args.session,
+                                  checkpoint=json.loads(args.file.read_text(encoding="utf-8-sig")), expected_revision=args.revision)
+        if args.cmd == "resume":
+            return await api.call("session_resume", project=args.project, ident=args.session)
+        if args.cmd == "session-run":
+            from hivemind.session_runner import run_session
+            return await run_session(root, api, args.project, args.agent, args.agent_args, config)
         if args.cmd == "doctor":
             from hivemind.cloud import cloud_settings
             return {"coordinator": url or "local", "machine": config.get("machine", socket.gethostname()),
@@ -206,7 +249,10 @@ def main():
         else:
             server.run(transport="stdio")
         return
-    print(json.dumps(asyncio.run(execute(args)), indent=2, ensure_ascii=False))
+    result = asyncio.run(execute(args))
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    if args.cmd == "session-run" and result.get("exit_code"):
+        sys.exit(1)
 
 
 if __name__ == "__main__":

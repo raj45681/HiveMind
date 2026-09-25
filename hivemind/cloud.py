@@ -143,5 +143,10 @@ class Routed:
             path, content = learning_note(**args)
             return await self.call("memory_write", path=path, content=content, expected_revision=revision)
         if self.cloud and tool in MEMORY_TOOLS:
+            if tool == 'hive_context':
+                if args.pop('budget_tokens', None) is not None:
+                    raise ValueError('Budgeted context requires the local HiveMind backend or an upgraded MCP authority; legacy cloud memory does not support it')
+            if tool == 'memory_search' and args.pop('project', ''):
+                raise ValueError('Project-scoped search requires the local backend or an upgraded MCP authority')
             return await self.cloud.call(tool, **args)
         return await self.authority.call(tool, **args)

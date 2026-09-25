@@ -1,0 +1,179 @@
+"""Durable session checkpoints. SQLite is authoritative; Markdown is a recoverable view."""
+import hashlib
+import json
+from pathlib import Path
+import re
+import sqlite3
+import subprocess
+import time
+import uuid
+from typing import Annotated, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from .context import AGENTS, validate_project
+
+Item = Annotated[str, Field(min_length=1, max_length=400)]
+
+
+class Checkpoint(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    summary: str = Field(min_length=1, max_length=1200)
+    status: Literal['active', 'completed', 'blocked', 'interrupted', 'needs_handoff'] = 'active'
+    completed: list[Item] = Field(default_factory=list, max_length=8)
+    changed_files: list[Item] = Field(default_factory=list, max_length=20)
+    verification: list[Item] = Field(default_factory=list, max_length=8)
+    blockers: list[Item] = Field(default_factory=list, max_length=8)
+    next_steps: list[Item] = Field(default_factory=list, max_length=8)
+    source: Literal['agent', 'worker', 'wrapper'] = 'agent'
+    exit_code: int | None = None
+
+    @model_validator(mode='after')
+    def evidence(self):
+        if not self.summary.strip() or any(not value.strip() for field in
+                (self.completed, self.changed_files, self.verification, self.blockers, self.next_steps) for value in field):
+            raise ValueError('Checkpoint fields must contain meaningful text')
+        if self.status == 'completed' and (not self.completed or not self.verification):
+            raise ValueError('Completed sessions require completed work and reported verification evidence')
+        if len(self.model_dump_json()) > 12000:
+            raise ValueError('Keep checkpoint content below 12000 characters')
+        return self
+
+
+def project_path(root, project):
+    config_path = Path(root) / 'hive.local.json'
+    config = json.loads(config_path.read_text(encoding='utf-8-sig')) if config_path.exists() else {}
+    mapping = config.get('projects', {'hivemind': str(root)})
+    path = mapping.get(project)
+    return Path(path).resolve() if path else None
+
+
+def git_snapshot(root, project, baseline=None, workspace=None):
+    """Metadata only: no diffs, file contents, remote URLs, or command arguments."""
+    path = Path(workspace) if workspace else project_path(root, project)
+    if not path or not path.is_dir():
+        return {'available': False, 'reason': 'Project is not mapped on this device'}
+    def git(*args):
+        output = subprocess.run(['git', '-C', str(path), *args], capture_output=True, timeout=10, check=True)
+        return output.stdout.decode('utf-8', errors='replace').rstrip('\r\n')
+    try:
+        if Path(git('rev-parse', '--show-toplevel')).resolve() != path.resolve():
+            return {'available': False, 'reason': 'Mapped directory is not the Git root'}
+        head = git('rev-parse', '--verify', 'HEAD')
+        branch = git('rev-parse', '--abbrev-ref', 'HEAD')
+        # --no-renames keeps one path per status record. All paths are repository-relative.
+        records = git('status', '--porcelain=v1', '-z', '--untracked-files=normal', '--no-renames').split('\0')
+        dirty = [entry[3:] for entry in records if entry]
+        changed = []
+        if baseline and baseline.get('head') and baseline['head'] != head:
+            changed = git('diff', '--name-only', '-z', baseline['head'], head, '--').split('\0')
+        observed = sorted(set(p for p in dirty + changed if p))
+        return {'available': True, 'head': head, 'branch': branch,
+                'dirty_files': [p for p in dirty[:20] if len(p) <= 400],
+                'observed_files': [p for p in observed[:20] if len(p) <= 400],
+                'files_omitted': max(0, len(observed) - 20) + sum(len(p) > 400 for p in observed[:20]),
+                'attribution': 'Git observations may include pre-existing or concurrent edits; not proof of authorship or correctness.'}
+    except (OSError, subprocess.SubprocessError):
+        return {'available': False, 'reason': 'Git snapshot unavailable (missing Git, unborn HEAD, or command failure)'}
+
+
+def validate_id(ident):
+    if not re.fullmatch(r'SESSION-[a-f0-9]{16}', ident):
+        raise ValueError('Invalid session ID')
+
+
+def start(hive, project, agent, goal, session_id='', workspace=None):
+    from .store import utc
+    validate_project(project, required=True)
+    if agent not in AGENTS or not isinstance(goal, str) or not goal.strip() or len(goal) > 400:
+        raise ValueError('Use a supported agent and a goal of 1-400 characters')
+    ident = session_id or 'SESSION-' + uuid.uuid4().hex[:16]
+    validate_id(ident)
+    baseline = git_snapshot(hive.root, project, workspace=workspace)
+    payload = Checkpoint(summary='Session started; no verified handoff recorded yet.', next_steps=[goal]).model_dump()
+    # A caller-supplied ID makes a retry safe after a lost acknowledgement.
+    with hive.connect(write=True) as c:
+        old = c.execute('SELECT project,agent,goal FROM sessions WHERE id=?', (ident,)).fetchone()
+        if old:
+            if (old['project'], old['agent'], old['goal']) != (project, agent, goal):
+                raise ValueError('Session ID already belongs to different work')
+        else:
+            c.execute('INSERT INTO sessions VALUES (?,?,?,?,?,?,?,?)',
+                      (ident, project, agent, goal, utc(), time.time(), json.dumps(baseline), 0))
+            c.execute('INSERT INTO checkpoints VALUES (?,?,?,?,?,?)',
+                      (ident, 0, json.dumps(payload), json.dumps(baseline), utc(), 'start'))
+    result = resume(hive, project, ident)
+    return persist_view(hive, result)
+
+
+def checkpoint(hive, ident, checkpoint, expected_revision, workspace=None):
+    from .store import utc
+    validate_id(ident)
+    payload = Checkpoint.model_validate(checkpoint).model_dump()
+    if isinstance(expected_revision, bool) or not isinstance(expected_revision, int) or expected_revision < 0:
+        raise ValueError('Expected revision must be a nonnegative integer')
+    encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+    digest = hashlib.sha256(encoded.encode()).hexdigest()
+    with hive.connect() as c:
+        session = c.execute('SELECT * FROM sessions WHERE id=?', (ident,)).fetchone()
+    if session is None:
+        raise ValueError('Session not found')
+    snapshot = git_snapshot(hive.root, session['project'], json.loads(session['baseline']), workspace)
+    with hive.connect(write=True) as c:
+        current = c.execute('SELECT revision FROM sessions WHERE id=?', (ident,)).fetchone()[0]
+        last = c.execute('SELECT digest FROM checkpoints WHERE session=? AND revision=?', (ident, current)).fetchone()[0]
+        if current != expected_revision:
+            if current != expected_revision + 1 or last != digest:
+                raise ValueError('Checkpoint changed; resume the session and use its current revision')
+        else:
+            c.execute('INSERT INTO checkpoints VALUES (?,?,?,?,?,?)',
+                      (ident, current + 1, encoded, json.dumps(snapshot), utc(), digest))
+            c.execute('UPDATE sessions SET revision=?,updated_at=? WHERE id=?', (current + 1, time.time(), ident))
+    return persist_view(hive, resume(hive, session['project'], ident))
+
+
+def resume(hive, project, ident=''):
+    validate_project(project, required=True)
+    if ident:
+        validate_id(ident)
+    with hive.connect() as c:
+        row = c.execute('''SELECT s.*,c.payload,c.snapshot,c.created AS checkpoint_at
+            FROM sessions s JOIN checkpoints c ON c.session=s.id AND c.revision=s.revision
+            WHERE s.project=? COLLATE NOCASE AND (?='' OR s.id=?)
+            ORDER BY s.updated_at DESC,s.rowid DESC LIMIT 1''', (project, ident, ident)).fetchone()
+    if row is None:
+        if ident:
+            raise ValueError('Session not found in this project')
+        return {'session': None, 'note': 'No structured checkpoint yet. Existing Markdown handoffs remain searchable.'}
+    payload = json.loads(row['payload'])
+    return {'session': {'id': row['id'], 'project': row['project'], 'agent': row['agent'], 'goal': row['goal'],
+            'status': payload['status'], 'revision': row['revision'], 'created': row['created'],
+            'checkpoint_at': row['checkpoint_at'], 'checkpoint': payload, 'git': json.loads(row['snapshot']),
+            'path': f"03-Projects/{row['project']}/Sessions/{row['id']}.md"},
+            'evidence_policy': 'Verification is agent-reported. Git changes and successful process exit are not proof of completion.'}
+
+
+def persist_view(hive, result):
+    from .store import atomic_write
+    session = result['session']
+    # Serialize export with checkpoint writers, then read the latest committed revision.
+    try:
+        with hive.connect(write=True) as c:
+            row = c.execute('SELECT payload,snapshot FROM checkpoints WHERE session=? ORDER BY revision DESC LIMIT 1',
+                            (session['id'],)).fetchone()
+            current = c.execute('SELECT revision FROM sessions WHERE id=?', (session['id'],)).fetchone()[0]
+            data, snapshot = json.loads(row['payload']), json.loads(row['snapshot'])
+            text = (f"# Session {session['id']}\n\nProject: {session['project']}\nAgent: {session['agent']}\n"
+                    f"Revision: {current}\nStatus: {data['status']}\n\nGoal: {session['goal']}\n\n{data['summary']}\n")
+            for key, title in [('completed', 'Completed work'), ('changed_files', 'Reported changed files'),
+                               ('verification', 'Reported verification'), ('blockers', 'Blockers'), ('next_steps', 'Next steps')]:
+                text += f'\n## {title}\n\n' + ('\n'.join('- ' + item for item in data[key]) or 'None reported.') + '\n'
+            text += '\n## Observed Git state\n\n```json\n' + json.dumps(snapshot, indent=2, ensure_ascii=False) + '\n```\n'
+            text += '\nGenerated view. Use session_checkpoint to update; SQLite retains every checkpoint revision.\n'
+            path = hive.note_path(session['path'])
+            atomic_write(path, text)
+            hive._index_note(c, path)
+        return {**result, 'saved': True, 'markdown_saved': True}
+    except (OSError, ValueError, sqlite3.Error) as exc:
+        # The database checkpoint is already committed and remains resumable/backed up.
+        return {**result, 'saved': True, 'markdown_saved': False, 'warning': str(exc)[:250]}

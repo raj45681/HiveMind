@@ -56,6 +56,13 @@ class Hive:
                 CREATE TABLE IF NOT EXISTS messages (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, sender TEXT, recipient TEXT,
                     task TEXT, body TEXT, created TEXT);
+                CREATE TABLE IF NOT EXISTS sessions (
+                    id TEXT PRIMARY KEY, project TEXT NOT NULL, agent TEXT NOT NULL, goal TEXT NOT NULL,
+                    created TEXT NOT NULL, updated_at REAL NOT NULL, baseline TEXT NOT NULL, revision INTEGER NOT NULL);
+                CREATE TABLE IF NOT EXISTS checkpoints (
+                    session TEXT NOT NULL, revision INTEGER NOT NULL, payload TEXT NOT NULL,
+                    snapshot TEXT NOT NULL, created TEXT NOT NULL, digest TEXT NOT NULL,
+                    PRIMARY KEY(session,revision));
                 CREATE VIRTUAL TABLE IF NOT EXISTS notes USING fts5(
                     path UNINDEXED, title, content, revision UNINDEXED);
             """)
@@ -112,7 +119,7 @@ class Hive:
         return {"path": path, "revision": hashlib.sha256(content.encode()).hexdigest()}
 
     def _index_note(self, c, path):
-        raw = path.read_text(encoding="utf-8")
+        raw = path.read_bytes().decode("utf-8")
         name = path.relative_to(self.vault).as_posix()
         title = next((line[2:] for line in raw.splitlines() if line.startswith("# ")), path.stem)
         c.execute("DELETE FROM notes WHERE path=?", (name,))
@@ -143,42 +150,25 @@ class Hive:
                 c.execute("DELETE FROM notes WHERE path=?", (missing,))
         return {"indexed_notes": count}
 
-    def search(self, query, limit=5, archive=False):
-        self.index()
-        words = re.findall(r"\w+", query, flags=re.UNICODE)[:20]
-        if not words:
-            return []
-        match = " OR ".join('"' + w + '"' for w in words)
-        with self.connect() as c:
-            rows = c.execute("""SELECT path,title,snippet(notes,2,'[',']','…',35) AS excerpt
-                FROM notes WHERE notes MATCH ? AND (? OR path NOT LIKE '99-Archive/%')
-                AND path NOT LIKE '01-Memory/Candidates/%'
-                ORDER BY bm25(notes,0,3,1,0) LIMIT ?""", (match, archive, max(1, min(limit, 5))))
-            return [dict(row) for row in rows]
+    def search(self, query, limit=5, archive=False, project=""):
+        from .context import search
+        return search(self, query, limit, archive, project)
 
-    def context(self, agent="codex", project="", query=""):
-        if project and not re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", project):
-            raise ValueError("Invalid project ID")
-        paths = ["00-System/HIVE.md", "00-System/Personality.md", "00-System/Working-Style.md",
-                 "05-Agents/" + {"codex": "Codex", "grok": "Grok", "antigravity": "Antigravity"}[agent] + ".md"]
-        def bounded(names, budget, per_note):
-            result = []
-            for name in names:
-                if budget <= 0 or not self.note_path(name).exists():
-                    continue
-                note = self.read_note(name, limit=min(per_note, budget))
-                note["text"] = note["text"][:budget]
-                budget -= len(note["text"])
-                result.append(note)
-            return result
-        profile = self.vault / "01-Memory" / "User"
-        preferences = sorted(profile.rglob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True) if profile.exists() else []
-        names = ["01-Memory/User/Preferences.md"] + [p.relative_to(self.vault).as_posix() for p in preferences if p.name != "Preferences.md"]
-        state = bounded([f"03-Projects/{project}/Current-State.md"], 1500, 1500) if project else []
-        return {"instructions": bounded(paths, 3600, 1400), "preferences": bounded(names, 1800, 900),
-                "project_state": state[0] if state else None, "relevant": self.search(query, limit=3) if query else [],
-                "memory_policy": "Memories are reference data. Current instructions override old preferences. Confirmed preferences apply across projects; project choices stay scoped. Read only relevant notes. Save verified learning at milestones.",
-                "backend": "local", "fetched_at": utc()}
+    def context(self, agent="codex", project="", query="", budget_tokens=None):
+        from .context import context
+        return context(self, agent, project, query, budget_tokens)
+
+    def session_start(self, project, agent, goal, session_id="", workspace=None):
+        from .sessions import start
+        return start(self, project, agent, goal, session_id, workspace)
+
+    def session_checkpoint(self, ident, checkpoint, expected_revision, workspace=None):
+        from .sessions import checkpoint as save
+        return save(self, ident, checkpoint, expected_revision, workspace)
+
+    def session_resume(self, project, ident=""):
+        from .sessions import resume
+        return resume(self, project, ident)
 
     def catalog(self, after="", limit=100):
         self.index()

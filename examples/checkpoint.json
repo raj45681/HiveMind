@@ -1,0 +1,10 @@
+{
+  "summary": "Describe the current outcome in your own words.",
+  "status": "active",
+  "completed": [],
+  "changed_files": [],
+  "verification": [],
+  "blockers": [],
+  "next_steps": ["Replace this example with the next concrete step."],
+  "source": "agent"
+}

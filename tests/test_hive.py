@@ -154,6 +154,8 @@ else:
                 with patch("hivemind.worker.command", side_effect=fake_command):
                     result = await run_task(root, local, task["id"], {})
                 self.assertEqual(result["status"], "done")
+                self.assertTrue(result['session_checkpoint']['saved'])
+                self.assertEqual(local.hive.session_resume('hivemind')['session']['status'], 'completed')
                 self.assertTrue((root / "vault" / "06-Handoffs" / (task["id"] + ".md")).exists())
 
     async def test_dry_run_does_not_claim_or_call_model(self):
@@ -171,6 +173,7 @@ else:
             with self.assertRaises(ValueError):
                 await run_task(Path(tmp), local, task["id"], {"projects": {}})
             self.assertEqual(local.hive.get_task(task["id"])["status"], "blocked")
+            self.assertEqual(local.hive.session_resume('missing')['session']['status'], 'blocked')
             self.assertTrue((local.hive.vault / "06-Handoffs" / (task["id"] + ".md")).exists())
 
     def test_result_adapters_reject_errors(self):

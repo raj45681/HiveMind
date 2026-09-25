@@ -25,10 +25,17 @@ class MCPTests(unittest.IsolatedAsyncioTestCase):
                 async with ClientSession(read, write) as client:
                     await client.initialize()
                     names = {t.name for t in (await client.list_tools()).tools}
-                    self.assertEqual(len(names), 13)
+                    self.assertEqual(len(names), 16)
                     result = await client.call_tool("memory_write", {"path": "01-Memory/shared.md", "content": "# Shared\nMCP interoperability verified"})
                     self.assertFalse(result.isError)
                     await client.call_tool("message_send", {"sender": "codex", "recipient": "grok", "body": "Read shared memory"})
+                    started = await client.call_tool('session_start', {'project':'app', 'agent':'codex', 'goal':'Fix login'})
+                    self.assertFalse(started.isError)
+                    ident = json.loads(started.content[0].text)['session']['id']
+                    saved = await client.call_tool('session_checkpoint', {'ident':ident, 'expected_revision':0,
+                        'checkpoint':{'summary':'Login fixed.', 'status':'completed', 'completed':['Updated login'],
+                                      'verification':['Login test passed'], 'next_steps':['Review change']}})
+                    self.assertFalse(saved.isError)
             # A separate process sees the same persistent state, with no shared chat context.
             async with stdio_client(params) as (read, write):
                 async with ClientSession(read, write) as client:
@@ -37,6 +44,12 @@ class MCPTests(unittest.IsolatedAsyncioTestCase):
                     self.assertIn("shared.md", result.content[0].text)
                     result = await client.call_tool("message_inbox", {"recipient": "grok"})
                     self.assertIn("Read shared memory", result.content[0].text)
+                    resumed = await client.call_tool('session_resume', {'project':'app'})
+                    self.assertEqual(json.loads(resumed.content[0].text)['session']['id'], ident)
+                    brief = await client.call_tool('hive_context', {'project':'app', 'budget_tokens':512})
+                    self.assertFalse(brief.isError)
+                    self.assertLessEqual(len(brief.content[0].text.encode('utf-8')), 2048)
+                    self.assertIn('Login fixed.', brief.content[0].text)
                     result = await client.call_tool("note_read", {"path": "../outside.md"})
                     self.assertTrue(result.isError)
 
