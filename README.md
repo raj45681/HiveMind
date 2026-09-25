@@ -112,8 +112,8 @@ flowchart TB
     G[Grok Build] --> M
     A[Antigravity] --> M
     M[Local HiveMind MCP bridge]
-    M <--> V[Markdown vault\nStyle · preferences · project memory]
-    M <--> D[SQLite\nTasks · claims · events · messages]
+    M <--> V["Markdown vault<br/>Style · preferences · project memory"]
+    M <--> D["SQLite<br/>Tasks · claims · events · messages"]
     O[Obsidian or your editor] <--> V
     V --> B[Portable backup]
     D --> B
