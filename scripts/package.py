@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def build_bundle(root, destination, include_state=False):
     root, destination = Path(root).resolve(), Path(destination).resolve()
-    names = ("hive.py", "bootstrap.py", "hivemind.cmd", "requirements.txt", "setup.ps1",
+    names = ("hive.py", "bootstrap.py", "hivemind.cmd", "requirements.txt", "requirements-graphify.txt", "setup.ps1",
              "setup.sh", "install.ps1", "install.sh", "README.md", "AGENTS.md", ".gitignore", ".gitattributes")
     files = [root / name for name in names if (root / name).is_file()]
     folders = ("hivemind", "scripts", "tests", "docs", "examples", "templates")

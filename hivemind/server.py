@@ -1,3 +1,4 @@
+import asyncio
 import json
 import secrets
 from pathlib import Path
@@ -9,7 +10,7 @@ from mcp.types import ToolAnnotations
 
 from .models import Agent, TaskResult, TaskSpec
 from .sessions import Checkpoint
-from .transport import backend
+from .transport import backend, connection
 
 INSTRUCTIONS = (
     "HiveMind shares Obsidian memory and task state. Call hive_context once with project and optional budget_tokens, "
@@ -35,6 +36,15 @@ def build_server(root, remote_url="", remote_token="", hostname=""):
     async def call(tool, **kwargs):
         async with backend(root, remote_url, remote_token) as api:
             return json.dumps(await api.call(tool, **kwargs), ensure_ascii=False)
+
+    # This capability belongs to the local device even when memory is remote.
+    # Installations without enabled projects retain the original tool surface.
+    if connection(root)[2].get("graphify_projects"):
+        @mcp.tool(annotations=ToolAnnotations(destructiveHint=False, openWorldHint=False), structured_output=False)
+        async def code_query(project: str, query: str, budget_tokens: int = 1000) -> str:
+            """Query local code relationships with file/line references. Auto-refreshes changed source, no model calls. Budget 256-2000 estimated tokens. On unavailable/disabled use native search."""
+            from .code_index import compact, operate
+            return compact(await asyncio.to_thread(operate, root, project, query, budget_tokens))
 
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))
     async def hive_context(agent: Agent = "codex", project: str = "", query: str = "", budget_tokens: int | None = None) -> str:

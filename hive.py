@@ -25,6 +25,15 @@ def parser():
     sub.add_parser("status", help="List tasks from the selected coordinator")
     sub.add_parser("index", help="Refresh the local Markdown search index")
     sub.add_parser("export", help="Refresh generated Obsidian task views")
+    s = sub.add_parser("code-setup", help="Install optional isolated Graphify and index an enrolled project")
+    s.add_argument("project")
+    s = sub.add_parser("code-index", help="Refresh local code graph without model calls")
+    s.add_argument("project")
+    s.add_argument("--force", action="store_true")
+    s = sub.add_parser("code-query", help="Query a bounded local code graph; refresh changed source automatically")
+    s.add_argument("project")
+    s.add_argument("query")
+    s.add_argument("--budget", type=int, default=1000)
     s = sub.add_parser("context", help="Read a budgeted, project-aware brief without inference")
     s.add_argument("project")
     s.add_argument("--agent", choices=("codex", "grok", "antigravity"), default="codex")
@@ -98,6 +107,13 @@ def save_config(root, config):
 async def execute(args):
     root = args.root.resolve()
     url, token, config = connection(root)
+    if args.cmd.startswith("code-"):
+        from hivemind.code_index import enable, operate
+        if args.cmd == "code-setup":
+            return enable(root, args.project)
+        return operate(root, args.project, query=getattr(args, "query", ""),
+                       budget_tokens=getattr(args, "budget", 1000),
+                       force=getattr(args, "force", False), build_only=args.cmd == "code-index")
     if args.cmd == "context-budget":
         if url:
             raise ValueError("Set the default on the coordinator device, or pass context --budget for this call")
@@ -216,10 +232,13 @@ async def execute(args):
             return await run_session(root, api, args.project, args.agent, args.agent_args, config)
         if args.cmd == "doctor":
             from hivemind.cloud import cloud_settings
+            from hivemind.code_index import installed
             return {"coordinator": url or "local", "machine": config.get("machine", socket.gethostname()),
                     "memory": cloud_settings(root)[0] or url or "local",
                     "agents": {name: shutil.which(exe) for name, exe in {"codex": "codex", "grok": "grok", "antigravity": "agy"}.items()},
                     "task_access": "ok" if isinstance(await api.call("task_list", limit=1), list) else "unexpected",
+                    "code_index": {"enabled_projects": config.get("graphify_projects", []),
+                                   "installed": installed(root) if config.get("graphify_projects") else False},
                     "model_calls": 0}
         if args.cmd == "status":
             return await api.call("task_list")
@@ -250,7 +269,11 @@ def main():
             server.run(transport="stdio")
         return
     result = asyncio.run(execute(args))
-    print(json.dumps(result, indent=2, ensure_ascii=False))
+    if args.cmd == "code-query":
+        from hivemind.code_index import compact
+        print(compact(result))
+    else:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
     if args.cmd == "session-run" and result.get("exit_code"):
         sys.exit(1)
 

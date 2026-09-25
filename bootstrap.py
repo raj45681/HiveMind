@@ -16,6 +16,7 @@ def main():
     parser.add_argument("--name", default="")
     parser.add_argument("--skip-register", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--with-graphify", action="store_true", help="Install and enable optional local code graphs (Python 3.12+)")
     args = parser.parse_args()
     if sys.version_info < (3, 11):
         raise ValueError("Install Python 3.11 or newer, then run this command again")
@@ -48,6 +49,14 @@ def main():
     if args.dry_run:
         command.append("--dry-run")
     subprocess.run(command, check=True)
+    if args.with_graphify:
+        if args.dry_run:
+            print("Preview: would install isolated Graphify and build a local source-only index.")
+        else:
+            print("Preparing optional Graphify code indexing; first setup downloads an isolated environment...", flush=True)
+            manifest = args.project.resolve() / ".hivemind/project.json"
+            project_id = json.loads(manifest.read_text(encoding="utf-8"))["project"]
+            subprocess.run([str(target), str(ROOT / "hive.py"), "code-setup", project_id], check=True)
     print(f"Shared HiveMind folder: {ROOT}\nObsidian vault: {ROOT / 'vault'}")
 
 

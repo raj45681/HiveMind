@@ -33,6 +33,10 @@ retrieve complete project-aware excerpts, and carry structured checkpoints betwe
 agents. The optional CLI wrapper also captures Git state when an agent exits.
 [Explore context & sessions →](docs/context-and-sessions.md)
 
+**Optional code intelligence:** Graphify builds a local map of code relationships.
+Agents query it through one bounded HiveMind tool, with no indexing model or API key.
+[Explore local code graphs →](docs/code-graphs.md)
+
 > **Local memory, normal agent accounts.** HiveMind needs no hosting subscription,
 > embedding service, or additional model. Your AI agents still use their own
 > services and account allowances. Retrieved memory uses normal context tokens.
@@ -62,6 +66,16 @@ Or specify the project explicitly:
 ```cmd
 "%USERPROFILE%\HiveMind\hivemind.cmd" "D:\Projects\My App"
 ```
+
+To include **local Graphify code indexing** (Python 3.12+, first setup downloads dependencies):
+
+```cmd
+"%USERPROFILE%\HiveMind\hivemind.cmd" "D:\Projects\My App" --with-graphify
+```
+
+Run the same command on each new device. Source-only graphs are rebuilt locally;
+your preferences and handoffs remain in the HiveMind vault. Memory-only setup still
+works without Graphify. [Supported files, limits and recovery →](docs/code-graphs.md)
 
 <details>
 <summary><strong>PowerShell and Linux commands</strong></summary>
@@ -119,6 +133,7 @@ flowchart TB
     M[Local HiveMind MCP bridge]
     M <--> V["Markdown vault<br/>Style · preferences · project memory"]
     M <--> D["SQLite<br/>Tasks · claims · events · messages"]
+    M --> Q["Optional Graphify<br/>Local source relationships"]
     O[Obsidian or your editor] <--> V
     V --> B[Portable backup]
     D --> B
@@ -127,7 +142,7 @@ flowchart TB
     classDef data fill:#172338,stroke:#92b9ff,color:#e8f0ff
     class C,G,A agent
     class M core
-    class V,D,O,B data
+    class V,D,O,B,Q data
 ```
 
 | When | What happens |
@@ -266,6 +281,7 @@ Real vendor inference and physical Linux behavior need separate smoke tests.
 | Guide | Read it for |
 | :--- | :--- |
 | [Budgeted context & session handoffs](docs/context-and-sessions.md) | Smaller briefs, checkpoints, resume, and optional CLI exit capture |
+| [Optional local code graphs](docs/code-graphs.md) | Graphify setup, bounded queries, supported files and fallback behavior |
 | [New devices & optional remote coordination](docs/new-device.md) | Moving a local Hive or explicitly connecting a private coordinator |
 | [Optional cloud bridge](docs/cloud-memory.md) | Legacy cloud integration; inactive in local mode |
 | [Implementation references](docs/sources.md) | Protocol and CLI references |

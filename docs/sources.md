@@ -13,6 +13,12 @@ Checked 2026-09-25. Installed CLI help was used to confirm executable flags.
 - [Official MCP Python SDK, supported v1 maintenance branch](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x)
 - [Obsidian vaults](https://obsidian.md/help/vault)
 - [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve)
+- [Graphify upstream source and license](https://github.com/Graphify-Labs/graphify)
+- [Graphify package](https://pypi.org/project/graphifyy/0.9.67/)
 
 The project pins MCP SDK 1.30.0 to the supported v1 API used here. The main SDK has
 a newer v2 API; upgrades require adapting and rerunning the protocol tests.
+
+The optional code adapter pins Graphify 0.9.67 and its tested dependency versions
+in requirements-graphify.txt. It calls deterministic extraction and graph querying;
+it does not install Graphify's assistant skill or use semantic document extraction.
