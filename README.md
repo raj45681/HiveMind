@@ -158,6 +158,36 @@ and no model-driven queue polling. Search and coordination make no inference cal
 reading the returned text still consumes context. Inferred tastes stay separate
 from confirmed preferences. Current instructions always take precedence over memory.
 
+### One server, up to 17 tools
+
+HiveMind registers **one MCP server** with each agent. That server exposes 16 core
+tools, plus `code_query` on devices with Graphify-enabled projects:
+
+| Purpose | Tools | Count |
+| :--- | :--- | ---: |
+| Memory | `hive_context`, `memory_search`, `note_read`, `memory_write`, `memory_learn` | 5 |
+| Sessions | `session_start`, `session_checkpoint`, `session_resume` | 3 |
+| Tasks | `task_create`, `task_get`, `task_list`, `task_claim`, `task_heartbeat`, `task_finish` | 6 |
+| Messages | `message_send`, `message_inbox` | 2 |
+| Optional code graph | `code_query` | 1 |
+
+Task and messaging tools support explicit coordination; their presence does not
+launch other agents. All 16 core tools are currently exposed. A smaller tool profile
+is a proposed optimization, not an available setting yet.
+
+**When Graphify runs:** setup with `--with-graphify` builds the initial index.
+Subsequent `code_query` calls check for source changes and refresh as needed.
+It does not run continuously or after every message. Agents are instructed to use
+it for code relationships; preferences and handoffs use the memory/session tools.
+[Invocation details →](docs/code-graphs.md#when-graphify-runs)
+
+**Token overhead:** local indexing makes no inference calls. Tool definitions,
+project instructions and returned text still add context to the agent. The 1,800-token
+memory brief and 1,000-token code-query defaults are approximate response ceilings,
+not fixed per-task charges or limits on the entire conversation. Actual usage depends
+on the harness, tokenizer, caching and number of calls. Net savings from fewer file
+reads have not yet been measured in a paid-agent task.
+
 ## Your memory
 
 ```text

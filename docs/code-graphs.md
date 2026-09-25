@@ -35,6 +35,23 @@ installed agent CLIs as before. It adds **one MCP tool, `code_query`**, only on 
 with enabled projects. No additional Graphify skill, full MCP server, hook, API key,
 watcher or agent process is installed. Existing user instructions are preserved.
 
+## When Graphify runs
+
+| Trigger | Behavior |
+| :--- | :--- |
+| Setup with `--with-graphify` | Enables indexing for the enrolled project and builds its graph; reruns reuse an unchanged graph. |
+| Agent calls `code_query` | Checks source contents, refreshes changed code, then returns a bounded graph answer. |
+| Manual `code-index` / `code-query` CLI command | Performs the corresponding local refresh or query; `code-index --force` rebuilds even when unchanged. |
+| Editing a file or sending an ordinary message | No background indexing is triggered. Changes are picked up at the next index/query call. |
+
+Typical questions include “What calls this function?”, “Where is authentication
+handled?” and “How do these modules connect?”. The agent chooses the tool based on
+the installed instructions. After setup, restart existing agent sessions to discover
+it. No separate Graphify skill is required for this integration.
+
+For your working style, past decisions and task handoffs, the agent uses HiveMind's
+memory/session tools. Having a code graph does not replace those records.
+
 ## Automatic use
 
 The managed project instructions tell agents to call `code_query` for code
