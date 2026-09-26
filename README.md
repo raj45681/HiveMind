@@ -5,7 +5,7 @@
 **Shared memory for Codex, Grok Build, and Antigravity.**<br>
 Keep your preferences, project context, and hard-won solutions in one local folder.
 
-![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-8EF0CC?style=flat-square&labelColor=101B2C) ![Storage Markdown + SQLite](https://img.shields.io/badge/Storage-Markdown%20%2B%20SQLite-A59FFF?style=flat-square&labelColor=101B2C) ![Interface MCP](https://img.shields.io/badge/Interface-MCP-92B9FF?style=flat-square&labelColor=101B2C) ![Hosting Not required](https://img.shields.io/badge/Hosting-Not%20required-8EF0CC?style=flat-square&labelColor=101B2C)
+![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-8EF0CC?style=flat-square&labelColor=101B2C) ![Storage Markdown + SQLite](https://img.shields.io/badge/Storage-Markdown%20%2B%20SQLite-A59FFF?style=flat-square&labelColor=101B2C) ![Interface MCP](https://img.shields.io/badge/Interface-MCP-92B9FF?style=flat-square&labelColor=101B2C) ![Hosting Not required](https://img.shields.io/badge/Hosting-Not%20required-8EF0CC?style=flat-square&labelColor=101B2C) [![License MIT](https://img.shields.io/badge/License-MIT-C9D7E8?style=flat-square&labelColor=101B2C)](LICENSE)
 
 [Quick start](#quick-start) · [How it works](#how-it-works) · [Your memory](#your-memory) · [Move devices](#back-up--move-devices) · [Documentation](#documentation)
 
@@ -337,6 +337,12 @@ Real vendor inference and physical Linux behavior need separate smoke tests.
 | [Optional cloud bridge](docs/cloud-memory.md) | Legacy cloud integration; inactive in local mode |
 | [Implementation references](docs/sources.md) | Protocol and CLI references |
 | [Agent workflow](AGENTS.md) | Instructions used when developing HiveMind |
+
+## License
+
+HiveMind is licensed under the [MIT License](LICENSE). Keep the copyright and
+license notice when redistributing it. Installed third-party dependencies retain
+their own licenses.
 
 ---
 
