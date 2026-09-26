@@ -137,6 +137,12 @@ Pull the source update, rerun `hivemind.cmd` in each enrolled project, and resta
 existing agent sessions to discover the 16 MCP tools. Initialization adds the
 session tables without replacing tasks, messages or Markdown notes.
 
+If a Windows MCP call remains running and later calls queue behind it, restart the
+agent session after updating HiveMind. Already-running bridge processes keep their
+old code. The bridge now isolates Git from MCP stdin and runs blocking local work
+outside the MCP event loop. `hive.py context PROJECT --budget 1000` is a local
+fallback while the agent session is being restarted.
+
 An upgraded remote MCP authority supports these tools too; its local configuration
 and mapped paths apply. The legacy hosted memory API does not support explicit
 context budgets or scoped search. Keep this installation in local mode for the

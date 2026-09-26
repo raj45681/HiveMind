@@ -120,7 +120,7 @@ class StoreTests(unittest.TestCase):
         hits = self.hive.handoff_search("cosmic widget", project="alpha")
         self.assertEqual({hit["source_type"] for hit in hits}, {"checkpoint", "task_handoff", "message"})
         self.assertEqual(self.hive.handoff_search("cosmic widget", project="beta"), [])
-        self.assertTrue(any(hit["source_type"] == "checkpoint" for hit in
+        self.assertTrue(any(hit.get("source_type") == "checkpoint" for hit in
                             self.hive.search("cosmic widget", project="alpha", include_handoffs=True)))
         self.assertFalse(any(hit.get("source_type") for hit in self.hive.search("cosmic widget", project="alpha")))
 

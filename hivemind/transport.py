@@ -1,4 +1,5 @@
 """Same operations locally or through one remote authoritative MCP server."""
+import asyncio
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -18,7 +19,10 @@ class Local:
         self.hive = Hive(root)
 
     async def call(self, tool, **kwargs):
-        return getattr(self.hive, TOOLS[tool])(**kwargs)
+        # Vault search, Git snapshots and local embedding run synchronously. Keep
+        # them off the MCP event loop so one slow operation cannot queue every
+        # subsequent tool request behind it.
+        return await asyncio.to_thread(getattr(self.hive, TOOLS[tool]), **kwargs)
 
 
 class Remote:

@@ -57,7 +57,10 @@ def git_snapshot(root, project, baseline=None, workspace=None):
     if not path or not path.is_dir():
         return {'available': False, 'reason': 'Project or saved worktree is not available on this device'}
     def git(at, *args):
-        return subprocess.run(['git', '-C', str(at), *args], capture_output=True, timeout=10,
+        # A stdio MCP server owns stdin. Git for Windows can inherit that pipe
+        # through its launcher and leave a child holding the request open.
+        return subprocess.run(['git', '-C', str(at), *args], stdin=subprocess.DEVNULL,
+                              capture_output=True, timeout=10,
                               check=True).stdout.decode('utf-8', errors='replace').rstrip('\r\n')
     def common_dir(at):
         value = Path(git(at, 'rev-parse', '--git-common-dir'))

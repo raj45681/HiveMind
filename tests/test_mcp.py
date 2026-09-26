@@ -4,20 +4,57 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import httpx
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 from hivemind.server import server_token
-from hivemind.transport import backend
+from hivemind.transport import Local, backend
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class MCPTests(unittest.IsolatedAsyncioTestCase):
+    async def test_git_backed_session_does_not_hold_stdio_requests(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, repo = Path(tmp) / "authority", Path(tmp) / "repo"
+            root.mkdir()
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q", str(repo)], check=True, stdin=subprocess.DEVNULL)
+            (repo / "app.txt").write_text("baseline", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repo), "add", "app.txt"], check=True, stdin=subprocess.DEVNULL)
+            subprocess.run(["git", "-C", str(repo), "-c", "user.name=Hive Test",
+                            "-c", "user.email=test@example.invalid", "commit", "-qm", "baseline"],
+                           check=True, stdin=subprocess.DEVNULL)
+            (root / "hive.local.json").write_text(json.dumps({"offline": True,
+                "projects": {"app": str(repo)}}), encoding="utf-8")
+            params = StdioServerParameters(command=sys.executable,
+                args=[str(ROOT / "hive.py"), "--root", str(root), "serve"])
+            async with stdio_client(params) as (read, write):
+                async with ClientSession(read, write) as client:
+                    await client.initialize()
+                    started = await asyncio.wait_for(client.call_tool("session_start",
+                        {"project": "app", "agent": "codex", "goal": "Check stdio Git snapshot"}), 20)
+                    self.assertFalse(started.isError)
+                    session = json.loads(started.content[0].text)["session"]
+                    self.assertTrue(session["git"]["available"])
+                    brief = await asyncio.wait_for(client.call_tool("hive_context",
+                        {"project": "app", "budget_tokens": 512}), 20)
+                    self.assertFalse(brief.isError)
+                    self.assertEqual(json.loads(brief.content[0].text)["session"]["git_drift"], "match")
+                    saved = await asyncio.wait_for(client.call_tool("session_checkpoint", {
+                        "ident": session["id"], "expected_revision": 0,
+                        "checkpoint": {"summary": "Stdio Git checkpoint saved", "status": "active"}}), 20)
+                    self.assertFalse(saved.isError)
+                    followup = await asyncio.wait_for(client.call_tool("task_list", {"limit": 1}), 5)
+                    self.assertFalse(followup.isError)
+
     async def test_stdio_clients_share_notes_tasks_and_messages(self):
         with tempfile.TemporaryDirectory() as tmp:
             params = StdioServerParameters(command=sys.executable, args=[str(ROOT / "hive.py"), "--root", tmp, "serve"])
@@ -108,3 +145,27 @@ class MCPTests(unittest.IsolatedAsyncioTestCase):
                     proc.kill()
                     proc.wait()
                 proc.stderr.close()
+
+
+class LocalDispatchTests(unittest.IsolatedAsyncioTestCase):
+    async def test_slow_local_operation_does_not_queue_other_calls(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            local = Local(Path(tmp))
+            started, release = threading.Event(), threading.Event()
+
+            def slow_context(**_):
+                started.set()
+                release.wait(3)
+                return {"done": True}
+
+            with patch.object(local.hive, "context", side_effect=slow_context):
+                began = time.monotonic()
+                slow = asyncio.create_task(local.call("hive_context"))
+                try:
+                    self.assertTrue(await asyncio.wait_for(asyncio.to_thread(started.wait), 1))
+                    self.assertEqual(await asyncio.wait_for(local.call("task_list", limit=1), 1), [])
+                    self.assertFalse(slow.done())
+                    self.assertLess(time.monotonic() - began, 2)
+                finally:
+                    release.set()
+                    await slow
