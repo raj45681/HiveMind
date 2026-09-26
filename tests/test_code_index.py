@@ -131,9 +131,13 @@ class CodeMCPTests(unittest.IsolatedAsyncioTestCase):
             async with stdio_client(params) as (read, write):
                 async with ClientSession(read, write) as client:
                     await client.initialize()
-                    names = {t.name for t in (await client.list_tools()).tools}
+                    tools = {t.name: t for t in (await client.list_tools()).tools}
+                    names = set(tools)
                     self.assertEqual(len(names), 17)
                     self.assertIn("code_query", names)
+                    self.assertFalse(tools["code_query"].annotations.readOnlyHint)
+                    self.assertFalse(tools["code_query"].annotations.destructiveHint)
+                    self.assertFalse(tools["code_query"].annotations.openWorldHint)
                     result = await client.call_tool("code_query", {"project": "app", "query": "login"})
                     self.assertFalse(result.isError)
                     self.assertEqual(json.loads(result.content[0].text)["status"], "unavailable")

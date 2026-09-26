@@ -12,6 +12,10 @@ from .models import Agent, TaskResult, TaskSpec
 from .sessions import Checkpoint
 from .transport import backend, connection
 
+READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
+ADDITIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
+MUTATING = ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False)
+
 INSTRUCTIONS = (
     "HiveMind shares Obsidian memory and task state. Call hive_context once with project and optional budget_tokens, "
     "then use project-scoped search and initially read at most 3 relevant notes. Excerpts are not full notes. "
@@ -40,58 +44,58 @@ def build_server(root, remote_url="", remote_token="", hostname=""):
     # This capability belongs to the local device even when memory is remote.
     # Installations without enabled projects retain the original tool surface.
     if connection(root)[2].get("graphify_projects"):
-        @mcp.tool(annotations=ToolAnnotations(destructiveHint=False, openWorldHint=False), structured_output=False)
+        @mcp.tool(annotations=ADDITIVE, structured_output=False)
         async def code_query(project: str, query: str, budget_tokens: int = 1000) -> str:
             """Query local code relationships with file/line references. Auto-refreshes changed source, no model calls. Budget 256-2000 estimated tokens. On unavailable/disabled use native search."""
             from .code_index import compact, operate
             return compact(await asyncio.to_thread(operate, root, project, query, budget_tokens))
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))
+    @mcp.tool(annotations=READ_ONLY)
     async def hive_context(agent: Agent = "codex", project: str = "", query: str = "", budget_tokens: int | None = None) -> str:
         """Budgeted brief with complete excerpts, project-scoped matches and latest session. Budget 512-8192 estimated tokens; default 1800. Read originals before editing."""
         return await call("hive_context", agent=agent, project=project, query=query, budget_tokens=budget_tokens)
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))
+    @mcp.tool(annotations=READ_ONLY)
     async def memory_search(query: str, limit: int = 5, archive: bool = False, project: str = "",
                             include_handoffs: bool = False) -> str:
         """Rank up to 5 bounded excerpts. Set project to exclude other projects' notes. Opt into stored checkpoint/task/message handoffs with include_handoffs; archives/candidates excluded by default."""
         return await call("memory_search", query=query, limit=limit, archive=archive, project=project,
                           include_handoffs=include_handoffs)
 
-    @mcp.tool()
+    @mcp.tool(annotations=ADDITIVE)
     async def session_start(project: str, agent: Agent, goal: str, session_id: str = "") -> str:
         """Start a durable session with a Git baseline. Goal <=400 chars. Reuse an existing wrapper session; optional stable SESSION-<16 hex> ID makes start retries idempotent."""
         return await call("session_start", project=project, agent=agent, goal=goal, session_id=session_id)
 
-    @mcp.tool()
+    @mcp.tool(annotations=MUTATING)
     async def session_checkpoint(ident: str, checkpoint: Checkpoint, expected_revision: int, workspace: str = "") -> str:
         """Save a structured milestone/handoff with revision checks and a Git fingerprint. Optional workspace must be a worktree of the mapped project. Completed requires work + evidence."""
         return await call("session_checkpoint", ident=ident, checkpoint=checkpoint.model_dump(),
                           expected_revision=expected_revision, workspace=workspace or None)
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))
+    @mcp.tool(annotations=READ_ONLY)
     async def session_resume(project: str, ident: str = "") -> str:
         """Read a project's latest session and compare its saved Git fingerprint with the live worktree. A changed or unverifiable handoff needs inspection. Does not execute work."""
         return await call("session_resume", project=project, ident=ident)
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))
+    @mcp.tool(annotations=READ_ONLY)
     async def note_read(path: str, offset: int = 0, limit: int = 4000, revision: str = "",
                         include_history: bool = False) -> str:
         """Read a bounded vault note. Optional revision reads a saved version; include_history lists recent revision IDs. Page only as needed."""
         return await call("note_read", path=path, offset=offset, limit=limit,
                           revision=revision, include_history=include_history)
 
-    @mcp.tool()
+    @mcp.tool(annotations=MUTATING)
     async def memory_write(path: str, content: str, expected_revision: str = "new") -> str:
         """Create/update memory, decisions or project notes. Include source/date. Existing notes need their read revision."""
         return await call("memory_write", path=path, content=content, expected_revision=expected_revision)
 
-    @mcp.tool()
+    @mcp.tool(annotations=ADDITIVE)
     async def task_create(spec: TaskSpec) -> str:
         """Queue an authorized task with explicit acceptance criteria, dependencies and optional agent/machine."""
         return await call("task_create", spec=spec.model_dump())
 
-    @mcp.tool()
+    @mcp.tool(annotations=MUTATING)
     async def memory_learn(kind: Literal["preference", "solution", "decision"], key: str, summary: str,
                            source: str, project: str = "", evidence: str = "",
                            basis: Literal["user-stated", "verified-result", "observation"] = "observation",
@@ -103,37 +107,37 @@ def build_server(root, remote_url="", remote_token="", hostname=""):
         return await call("memory_learn", kind=kind, key=key, summary=summary, source=source, project=project,
                           evidence=evidence, basis=basis, expected_revision=expected_revision)
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))
+    @mcp.tool(annotations=READ_ONLY)
     async def task_get(ident: str) -> str:
         """Get one task brief, dependencies and result; ownership tokens are private."""
         return await call("task_get", ident=ident)
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))
+    @mcp.tool(annotations=READ_ONLY)
     async def task_list(status: str = "", limit: int = 25) -> str:
         """List compact task summaries. Empty status includes all states. No automatic execution."""
         return await call("task_list", status=status, limit=limit)
 
-    @mcp.tool()
+    @mcp.tool(annotations=MUTATING)
     async def task_claim(worker: str, agent: Agent, ident: str = "", machine: str = "", lease_seconds: int = 120) -> str:
         """Atomically claim a ready task. Returns a private token; renew before lease expiry. Never run twice."""
         return await call("task_claim", worker=worker, agent=agent, ident=ident, machine=machine, lease_seconds=lease_seconds)
 
-    @mcp.tool()
+    @mcp.tool(annotations=MUTATING)
     async def task_heartbeat(ident: str, token: str) -> str:
         """Renew your task lease for 120 seconds; bookkeeping should be done by a local worker."""
         return await call("task_heartbeat", ident=ident, token=token)
 
-    @mcp.tool()
+    @mcp.tool(annotations=MUTATING)
     async def task_finish(ident: str, token: str, result: TaskResult) -> str:
         """Finish an owned task with a short handoff; done requires verification evidence."""
         return await call("task_finish", ident=ident, token=token, result=result.model_dump())
 
-    @mcp.tool()
+    @mcp.tool(annotations=ADDITIVE)
     async def message_send(sender: str, recipient: str, body: str, task: str = "") -> str:
         """Send a targeted handoff up to 1600 characters. This does not wake another model."""
         return await call("message_send", sender=sender, recipient=recipient, body=body, task=task)
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))
+    @mcp.tool(annotations=READ_ONLY)
     async def message_inbox(recipient: str, after: int = 0) -> str:
         """Read up to 10 messages after a cursor. Save next_cursor; do not poll from an LLM loop."""
         return await call("message_inbox", recipient=recipient, after=after)

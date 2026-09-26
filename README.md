@@ -202,6 +202,13 @@ tools, plus `code_query` on devices with Graphify-enabled projects:
 | Messages | `message_send`, `message_inbox` | 2 |
 | Optional code graph | `code_query` | 1 |
 
+The MCP `tools/list` response distinguishes reads from writes with explicit
+`readOnlyHint` annotations. New sessions, tasks and messages are marked additive;
+checkpoints, memory updates and task-state changes are marked as mutations.
+`code_query` can refresh its disposable local index, so it is marked as a
+non-destructive write even though it does not edit source files. These are client
+hints, not an access-control boundary; the server still validates every write.
+
 Task and messaging tools support explicit coordination; their presence does not
 launch other agents. All 16 core tools are currently exposed. A smaller tool profile
 is a proposed optimization, not an available setting yet.

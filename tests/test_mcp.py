@@ -61,8 +61,20 @@ class MCPTests(unittest.IsolatedAsyncioTestCase):
             async with stdio_client(params) as (read, write):
                 async with ClientSession(read, write) as client:
                     await client.initialize()
-                    names = {t.name for t in (await client.list_tools()).tools}
-                    self.assertEqual(len(names), 16)
+                    tools = {t.name: t for t in (await client.list_tools()).tools}
+                    read_only = {"hive_context", "memory_search", "session_resume", "note_read",
+                                 "task_get", "task_list", "message_inbox"}
+                    additive = {"session_start", "task_create", "message_send"}
+                    mutating = {"session_checkpoint", "memory_write", "memory_learn",
+                                "task_claim", "task_heartbeat", "task_finish"}
+                    self.assertEqual(set(tools), read_only | additive | mutating)
+                    for name, tool in tools.items():
+                        with self.subTest(tool=name):
+                            self.assertIsNotNone(tool.annotations)
+                            self.assertFalse(tool.annotations.openWorldHint)
+                            self.assertEqual(tool.annotations.readOnlyHint, name in read_only)
+                            if name in additive | mutating:
+                                self.assertEqual(tool.annotations.destructiveHint, name in mutating)
                     result = await client.call_tool("memory_write", {"path": "01-Memory/shared.md", "content": "# Shared\nMCP interoperability verified"})
                     self.assertFalse(result.isError)
                     first_revision = json.loads(result.content[0].text)["revision"]
