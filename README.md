@@ -50,8 +50,9 @@ existing memory tools; the vault remains plain Markdown.
 ## Quick start
 
 You need **Python 3.11+**, **Git**, and at least one supported agent CLI installed
-and signed in. The first setup downloads the Python dependencies. Private
-repositories require your GitHub authentication to clone.
+and signed in. The first setup downloads the Python dependencies. This source
+repository is public, so cloning it needs no GitHub sign-in. Your personal vault
+and device credentials remain local and are excluded from Git.
 
 ### 1 · Get HiveMind and enroll your project
 
