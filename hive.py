@@ -100,6 +100,26 @@ def parser():
     s.add_argument("session")
     s.add_argument("--budget", type=int, default=1000)
     s.add_argument("--stage", action="store_true", help="Save a draft in the project review queue")
+    for command in ("recovery-enable", "recovery-disable"):
+        s = sub.add_parser(command, help="Opt a mapped Git project into or out of private milestone snapshots")
+        s.add_argument("project")
+    s = sub.add_parser("recovery-list", help="List private milestone recovery snapshots")
+    s.add_argument("--project", default="")
+    s.add_argument("--limit", type=int, default=25)
+    s = sub.add_parser("recovery-diff", help="Preview changed files or a bounded single-file diff")
+    s.add_argument("snapshot")
+    s.add_argument("--path", default="")
+    s = sub.add_parser("recovery-restore", help="Restore one previewed file if its current hash still matches")
+    s.add_argument("snapshot")
+    s.add_argument("path")
+    s.add_argument("--expected-current", required=True)
+    s = sub.add_parser("recovery-undo", help="Undo a restore if the file has not changed since")
+    s.add_argument("undo")
+    s.add_argument("--expected-current", required=True)
+    s = sub.add_parser("recovery-prune", help="Remove old private snapshots for one project")
+    s.add_argument("project")
+    s.add_argument("--keep", type=int, default=10)
+    s.add_argument("--drop-undos", action="store_true", help="Also remove this project's restore undo records")
     s = sub.add_parser("handoff-search", help="Search stored task, checkpoint and message handoffs")
     s.add_argument("query")
     s.add_argument("--project", default="")
@@ -151,7 +171,9 @@ async def execute(args):
     url, token, config = connection(root)
     if args.cmd in {"history", "diff", "restore", "memory-audit", "handoff-search",
                     "candidate-inbox", "candidate-approve", "candidate-reject", "procedure-report",
-                    "procedure-archive", "procedure-unarchive", "procedure-used", "review-checkpoint"}:
+                    "procedure-archive", "procedure-unarchive", "procedure-used", "review-checkpoint",
+                    "recovery-enable", "recovery-disable", "recovery-list", "recovery-diff",
+                    "recovery-restore", "recovery-undo", "recovery-prune"}:
         if url:
             raise ValueError("Run local memory inspection on the device holding the HiveMind vault")
         hive = Hive(root)
@@ -166,6 +188,34 @@ async def execute(args):
             return hive.memory_audit(args.project, args.limit)
         if args.cmd == "handoff-search":
             return hive.handoff_search(args.query, args.project, args.limit)
+        if args.cmd.startswith("recovery-"):
+            from hivemind import recovery
+            from hivemind.context import validate_project
+            if args.cmd in {"recovery-enable", "recovery-disable"}:
+                validate_project(args.project, required=True)
+                if args.cmd == "recovery-enable":
+                    from hivemind.sessions import git_snapshot
+                    observed = git_snapshot(root, args.project)
+                    if not observed.get("available"):
+                        raise ValueError(observed.get("reason", "Mapped Git project unavailable"))
+                projects = set(config.get("recovery_projects", []))
+                if args.cmd == "recovery-enable":
+                    projects.add(args.project)
+                else:
+                    projects.discard(args.project)
+                config["recovery_projects"] = sorted(projects)
+                save_config(root, config)
+                return {"project": args.project, "enabled": args.cmd == "recovery-enable",
+                        "note": "New sessions and checkpoints use this setting; existing snapshots remain available"}
+            if args.cmd == "recovery-list":
+                return recovery.list_snapshots(hive, args.project, args.limit)
+            if args.cmd == "recovery-diff":
+                return recovery.preview(hive, args.snapshot, args.path)
+            if args.cmd == "recovery-restore":
+                return recovery.restore_file(hive, args.snapshot, args.path, args.expected_current)
+            if args.cmd == "recovery-undo":
+                return recovery.undo_restore(hive, args.undo, args.expected_current)
+            return recovery.prune(hive, args.project, args.keep, args.drop_undos)
         from hivemind import learning_ops
         if args.cmd == "candidate-inbox":
             return learning_ops.candidate_inbox(hive, args.limit)

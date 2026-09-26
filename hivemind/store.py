@@ -73,7 +73,23 @@ class Hive:
                     id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, revision TEXT NOT NULL,
                     source TEXT NOT NULL, evidence TEXT NOT NULL, used TEXT NOT NULL);
                 CREATE INDEX IF NOT EXISTS procedure_uses_path ON procedure_uses(path, used DESC);
+                CREATE TABLE IF NOT EXISTS recovery_snapshots (
+                    id TEXT PRIMARY KEY, session TEXT NOT NULL, revision INTEGER NOT NULL,
+                    project TEXT NOT NULL, workspace TEXT NOT NULL, git_dir TEXT NOT NULL,
+                    head TEXT NOT NULL, branch TEXT NOT NULL, created TEXT NOT NULL,
+                    archive_sha TEXT NOT NULL, archive_bytes INTEGER NOT NULL,
+                    file_count INTEGER NOT NULL, excluded_count INTEGER NOT NULL,
+                    UNIQUE(session,revision));
+                CREATE INDEX IF NOT EXISTS recovery_project_recent ON recovery_snapshots(project,created DESC);
+                CREATE TABLE IF NOT EXISTS recovery_undos (
+                    id TEXT PRIMARY KEY, snapshot TEXT NOT NULL, project TEXT NOT NULL,
+                    workspace TEXT NOT NULL, git_dir TEXT NOT NULL, head TEXT NOT NULL, branch TEXT NOT NULL,
+                    path TEXT NOT NULL, prior_sha TEXT NOT NULL, prior_mode INTEGER,
+                    restored_sha TEXT NOT NULL,
+                    created TEXT NOT NULL, undone INTEGER NOT NULL DEFAULT 0);
             """)
+            if "prior_mode" not in {row[1] for row in c.execute("PRAGMA table_info(recovery_undos)")}:
+                c.execute("ALTER TABLE recovery_undos ADD COLUMN prior_mode INTEGER")
 
     @contextmanager
     def connect(self, write=False):

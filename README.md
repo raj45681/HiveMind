@@ -260,6 +260,10 @@ as verified completion. Resume compares each saved Git/worktree fingerprint with
 the live state and flags changed or unverifiable handoffs for inspection.
 [Session behavior and limitations](docs/context-and-sessions.md).
 
+**Opt-in worktree recovery** saves bounded private file snapshots at session
+milestones. Preview a changed file, restore it only while its current hash matches
+the preview, and undo that restore if needed. [Setup and limits →](docs/recovery-snapshots.md)
+
 Saved Markdown revisions can be inspected, diffed and restored with a current-revision
 check. A read-only audit flags mechanical issues; an opt-in search finds older task,
 session and message handoffs. These local operations make no model calls.
@@ -365,6 +369,7 @@ Real vendor inference and physical Linux behavior need separate smoke tests.
 | [Optional local code graphs](docs/code-graphs.md) | Graphify setup, bounded queries, supported files and fallback behavior |
 | [Optional semantic memory](docs/semantic-memory.md) | Paraphrase recall, one-time model setup, local index and limits |
 | [Local memory inspection](docs/local-memory-operations.md) | Note history, safe restore, read-only audit, and handoff search |
+| [Worktree recovery snapshots](docs/recovery-snapshots.md) | Opt-in capture, diff preview, conflict-checked file restore and undo |
 | [Device migration](docs/new-device.md) | Moving a local Hive with a backup; legacy remote configuration |
 | [Optional cloud bridge](docs/cloud-memory.md) | Legacy cloud integration; inactive in local mode |
 | [Implementation references](docs/sources.md) | Protocol and CLI references |

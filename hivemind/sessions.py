@@ -155,8 +155,15 @@ def start(hive, project, agent, goal, session_id='', workspace=None):
                       (ident, project, agent, goal, utc(), time.time(), json.dumps(baseline), 0))
             c.execute('INSERT INTO checkpoints VALUES (?,?,?,?,?,?)',
                       (ident, 0, json.dumps(payload), json.dumps(baseline), utc(), 'start'))
-    result = resume(hive, project, ident)
-    return persist_view(hive, result)
+    result = persist_view(hive, resume(hive, project, ident))
+    from .recovery import capture
+    try:
+        recovery = capture(hive, project, ident, result['session']['revision'], result['session']['git'])
+    except Exception as exc:
+        recovery = {'saved': False, 'reason': f'Recovery snapshot unavailable: {type(exc).__name__}: {exc}'[:250]}
+    if recovery and recovery.get('saved'):
+        result['session']['recovery_snapshot'] = {'id': recovery['id'], 'revision': result['session']['revision']}
+    return {**result, 'recovery_snapshot': recovery} if recovery is not None else result
 
 
 def checkpoint(hive, ident, checkpoint, expected_revision, workspace=None):
@@ -188,7 +195,15 @@ def checkpoint(hive, ident, checkpoint, expected_revision, workspace=None):
             c.execute('INSERT INTO checkpoints VALUES (?,?,?,?,?,?)',
                       (ident, current + 1, encoded, json.dumps(snapshot), utc(), digest))
             c.execute('UPDATE sessions SET revision=?,updated_at=? WHERE id=?', (current + 1, time.time(), ident))
-    return persist_view(hive, resume(hive, session['project'], ident))
+    result = persist_view(hive, resume(hive, session['project'], ident))
+    from .recovery import capture
+    try:
+        recovery = capture(hive, session['project'], ident, result['session']['revision'], result['session']['git'])
+    except Exception as exc:
+        recovery = {'saved': False, 'reason': f'Recovery snapshot unavailable: {type(exc).__name__}: {exc}'[:250]}
+    if recovery and recovery.get('saved'):
+        result['session']['recovery_snapshot'] = {'id': recovery['id'], 'revision': result['session']['revision']}
+    return {**result, 'recovery_snapshot': recovery} if recovery is not None else result
 
 
 def resume(hive, project, ident=''):
@@ -206,10 +221,14 @@ def resume(hive, project, ident=''):
         return {'session': None, 'note': 'No structured checkpoint yet. Existing Markdown handoffs remain searchable.'}
     payload = json.loads(row['payload'])
     saved = json.loads(row['snapshot'])
+    with hive.connect() as c:
+        recovery = c.execute('''SELECT id,revision,created,file_count,excluded_count
+            FROM recovery_snapshots WHERE session=? ORDER BY revision DESC LIMIT 1''', (row['id'],)).fetchone()
     return {'session': {'id': row['id'], 'project': row['project'], 'agent': row['agent'], 'goal': row['goal'],
             'status': payload['status'], 'revision': row['revision'], 'created': row['created'],
             'checkpoint_at': row['checkpoint_at'], 'checkpoint': payload, 'git': saved,
             'git_drift': git_drift(hive.root, project, saved),
+            'recovery_snapshot': dict(recovery) if recovery else None,
             'path': f"03-Projects/{row['project']}/Sessions/{row['id']}.md"},
             'evidence_policy': 'Verification is agent-reported. Git changes and successful process exit are not proof of completion.'}
 

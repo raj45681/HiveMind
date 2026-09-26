@@ -59,6 +59,8 @@ Before substantial work:
   use the previous handoff as context, not as another agent's identity.
   Check `git_drift`: if changed or unverifiable, inspect the live repository and
   worktree before relying on the saved handoff. It is a warning, not proof of a fix.
+  If a recovery snapshot is available, preview it with local `hive.py recovery-diff`;
+  restore a file only when explicitly requested, using its fresh current hash.
   If HIVE_SESSION_ID is set by a CLI wrapper, resume that ID instead of starting another.
   Skip session management when a Hive worker supplies the task; the worker owns it.
 

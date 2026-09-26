@@ -50,7 +50,8 @@ checkpoint records:
 - Blockers and concrete next steps.
 - Observed Git branch, HEAD and file paths when the project is mapped locally.
 - A fingerprint of staged changes and dirty tracked/untracked file contents in the
-  execution worktree. The fingerprint is metadata; file contents are not saved.
+  execution worktree. The fingerprint is metadata; the ordinary checkpoint does
+  not save file contents.
 
 Git metadata does not include diffs, file contents, remote URLs or agent arguments.
 Observed files can include pre-existing or concurrent changes; they are not proof
@@ -70,6 +71,8 @@ checkpoints without a fingerprint, removed worktrees, unavailable Git, and dirty
 submodules are reported as unverifiable rather than silently treated as current.
 The check is local and requires no model call. It is a point-in-time observation,
 not a lock against another process editing the repo immediately afterward.
+Projects can separately opt into [private recovery snapshots](recovery-snapshots.md)
+at these milestones. Captures are bounded and kept outside the vault and Git.
 
 Agents use `session_start`, `session_checkpoint`, and `session_resume`. A checkpoint
 requires the last revision; stale writes fail instead of overwriting newer work.

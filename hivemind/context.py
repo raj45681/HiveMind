@@ -181,6 +181,8 @@ def context(hive, agent="codex", project="", query="", budget_tokens=None):
             candidate['verification'] = session['checkpoint']['verification'][:1]
             candidate['blockers'] = session['checkpoint']['blockers'][:1]
             candidate['git_drift'] = session['git_drift']['status']
+            if candidate['git_drift'] != 'match' and session.get('recovery_snapshot'):
+                candidate['recovery_snapshot'] = session['recovery_snapshot']['id']
             # Never silently cut an individual next step or evidence item.
             while size(candidate) > cap * .24:
                 field = next((k for k in ('verification', 'next_steps', 'blockers') if candidate[k]), None)
