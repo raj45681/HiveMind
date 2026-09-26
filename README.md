@@ -2,12 +2,12 @@
 
 ![HiveMind — One memory. Every agent.](docs/assets/hivemind-banner.svg)
 
-**Shared memory for Codex, Grok Build, and Antigravity.**<br>
+**Shared memory for Codex, Grok Build, and Antigravity on one device.**<br>
 Keep your preferences, project context, and hard-won solutions in one local folder.
 
 ![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-8EF0CC?style=flat-square&labelColor=101B2C) ![Storage Markdown + SQLite](https://img.shields.io/badge/Storage-Markdown%20%2B%20SQLite-A59FFF?style=flat-square&labelColor=101B2C) ![Interface MCP](https://img.shields.io/badge/Interface-MCP-92B9FF?style=flat-square&labelColor=101B2C) ![Hosting Not required](https://img.shields.io/badge/Hosting-Not%20required-8EF0CC?style=flat-square&labelColor=101B2C) [![License MIT](https://img.shields.io/badge/License-MIT-C9D7E8?style=flat-square&labelColor=101B2C)](LICENSE)
 
-[Quick start](#quick-start) · [How it works](#how-it-works) · [Your memory](#your-memory) · [Move devices](#back-up--move-devices) · [Documentation](#documentation)
+[Quick start](#quick-start) · [How it works](#how-it-works) · [Your memory](#your-memory) · [Backups](#back-up--move-devices) · [Documentation](#documentation)
 
 </div>
 
@@ -22,11 +22,19 @@ confirmed preferences and relevant solutions are available again.
 HiveMind makes that handoff possible through **shared files and a local MCP server**.
 It gives each agent a small, relevant brief and a place to save what it learns.
 
+**HiveMind is single-device software.** One Markdown vault and one SQLite database
+serve the agents working on that computer. There is no device-sync requirement,
+sync daemon, hosted memory bill, or cross-device conflict to resolve. Move to a
+different computer with a backup when needed; do not run two active copies of the
+same Hive. Existing remote connectors remain optional legacy paths, not the core
+product.
+
 | Remember | Coordinate | Own |
 | :--- | :--- | :--- |
 | Shared personality and working style | Targeted messages between agents | Plain Markdown you can edit |
 | Confirmed preferences across projects | Tasks with explicit ownership | Local SQLite task history |
 | Project decisions and verified solutions | Concise, persistent handoffs | Portable backups without hosting |
+| Saved note versions and local audits | Searchable task and session history | One SQLite authority on this device |
 
 **Now with budgeted briefs and resumable sessions:** select a context budget,
 retrieve complete project-aware excerpts, and carry structured checkpoints between
@@ -91,9 +99,9 @@ enrolled project** through the existing `memory_search` and `hive_context` tools
 No agent skill or extra MCP tool is needed. Combine both flags if you want
 Graphify as well. [Setup, privacy and limits →](docs/semantic-memory.md)
 
-Run the same command on each new device. Source-only graphs are rebuilt locally;
-your preferences and handoffs remain in the HiveMind vault. Memory-only setup still
-works without Graphify. [Supported files, limits and recovery →](docs/code-graphs.md)
+Run the same command for each new project **on this device**. Source-only graphs
+are rebuilt locally; preferences and handoffs stay in the same vault. Memory-only
+setup still works without Graphify. [Supported files, limits and recovery →](docs/code-graphs.md)
 
 <details>
 <summary><strong>PowerShell and Linux commands</strong></summary>
@@ -178,6 +186,9 @@ coordination remain deterministic;
 reading the returned text still consumes context. Inferred tastes stay separate
 from confirmed preferences. Current instructions always take precedence over memory.
 
+History, audit and older handoff search are **on demand**. They do not expand the
+default brief or add MCP tools. [Use local memory inspection →](docs/local-memory-operations.md)
+
 ### One server, up to 17 tools
 
 HiveMind registers **one MCP server** with each agent. That server exposes 16 core
@@ -224,7 +235,7 @@ HiveMind/
 │   ├── 03-Projects/      Project state and handoffs
 │   ├── 04-Tasks/         Generated task views
 │   └── 05-Agents/        Agent roles
-├── runtime/              Private database, logs, and config backups
+├── runtime/              Private SQLite database, note versions, logs, and config backups
 └── tests/                Automated tests without paid inference
 ```
 
@@ -236,6 +247,11 @@ Session checkpoints retain completed work, reported checks, blockers and next
 steps in SQLite, with a Markdown view under each project's `Sessions/` directory.
 Concurrent updates require revision checks, and a CLI exit alone is never treated
 as verified completion. [Session behavior and limitations](docs/context-and-sessions.md).
+
+Saved Markdown revisions can be inspected, diffed and restored with a current-revision
+check. A read-only audit flags mechanical issues; an opt-in search finds older task,
+session and message handoffs. These local operations make no model calls.
+[Commands and limits →](docs/local-memory-operations.md)
 
 The repository ships generic templates. First setup creates missing local notes
 without replacing your edits. **Your real vault, credentials, databases, device
@@ -263,7 +279,7 @@ Extract the ZIP's `HiveMind` folder onto the next device. Install Python and you
 agent CLIs, then run its installer in each project. Keep the project's tracked
 `.hivemind/project.json` to preserve its identity. Restart agent sessions.
 
-**Use one active copy.** Offline copies do not automatically synchronize or merge.
+**Use one active copy.** Moving devices is migration, not live synchronization.
 Move a fresh backup when switching devices; do not sync a live SQLite database
 with a generic folder-sync tool. Personal backups contain private data—keep them
 out of GitHub releases and repository commits.
@@ -279,6 +295,9 @@ Run these from your HiveMind folder. On Linux substitute `.venv/bin/python`.
 .venv\Scripts\python.exe hive.py offline
 .venv\Scripts\python.exe hive.py context myapp --query "login" --budget 1000
 .venv\Scripts\python.exe hive.py resume myapp
+.venv\Scripts\python.exe hive.py history "01-Memory/Solutions/my-fix.md"
+.venv\Scripts\python.exe hive.py memory-audit --project myapp
+.venv\Scripts\python.exe hive.py handoff-search "authentication" --project myapp
 ```
 
 The installer supports `--dry-run`, `--name myapp`, and `--skip-register`.
@@ -333,7 +352,8 @@ Real vendor inference and physical Linux behavior need separate smoke tests.
 | [Budgeted context & session handoffs](docs/context-and-sessions.md) | Smaller briefs, checkpoints, resume, and optional CLI exit capture |
 | [Optional local code graphs](docs/code-graphs.md) | Graphify setup, bounded queries, supported files and fallback behavior |
 | [Optional semantic memory](docs/semantic-memory.md) | Paraphrase recall, one-time model setup, local index and limits |
-| [New devices & optional remote coordination](docs/new-device.md) | Moving a local Hive or explicitly connecting a private coordinator |
+| [Local memory inspection](docs/local-memory-operations.md) | Note history, safe restore, read-only audit, and handoff search |
+| [Device migration](docs/new-device.md) | Moving a local Hive with a backup; legacy remote configuration |
 | [Optional cloud bridge](docs/cloud-memory.md) | Legacy cloud integration; inactive in local mode |
 | [Implementation references](docs/sources.md) | Protocol and CLI references |
 | [Agent workflow](AGENTS.md) | Instructions used when developing HiveMind |

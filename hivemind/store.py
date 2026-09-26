@@ -65,6 +65,10 @@ class Hive:
                     PRIMARY KEY(session,revision));
                 CREATE VIRTUAL TABLE IF NOT EXISTS notes USING fts5(
                     path UNINDEXED, title, content, revision UNINDEXED);
+                CREATE TABLE IF NOT EXISTS note_versions (
+                    path TEXT NOT NULL, revision TEXT NOT NULL, content BLOB NOT NULL,
+                    recorded TEXT NOT NULL, PRIMARY KEY(path, revision));
+                CREATE INDEX IF NOT EXISTS note_versions_recent ON note_versions(path, recorded DESC);
             """)
 
     @contextmanager
@@ -92,17 +96,73 @@ class Hive:
             raise ValueError("Only Markdown inside this vault is available")
         return target
 
-    def read_note(self, path, offset=0, limit=4000):
+    def read_note(self, path, offset=0, limit=4000, revision="", include_history=False):
         target = self.note_path(path)
-        if target.stat().st_size > 512_000:
-            raise ValueError("Note is too large; split or archive it before retrieval")
-        data = target.read_bytes()
+        name = target.relative_to(self.vault).as_posix()
+        if revision:
+            with self.connect() as c:
+                row = c.execute("SELECT content FROM note_versions WHERE path=? AND revision=?", (name, revision)).fetchone()
+            if row is None:
+                raise ValueError("Note revision not found")
+            data = bytes(row["content"])
+        else:
+            if target.stat().st_size > 512_000:
+                raise ValueError("Note is too large; split or archive it before retrieval")
+            data = target.read_bytes()
+        if len(data) > 512_000:
+            raise ValueError("Note revision is too large for retrieval")
         raw = data.decode("utf-8")
         offset, limit = max(0, offset), max(100, min(limit, 8000))
-        return {"path": target.relative_to(self.vault).as_posix(),
+        result = {"path": name,
                 "revision": hashlib.sha256(data).hexdigest(),
                 "text": raw[offset:offset + limit], "total_chars": len(raw),
                 "next_offset": offset + limit if offset + limit < len(raw) else None}
+        if include_history:
+            result["history"] = self.note_history(name)["versions"]
+        return result
+
+    def note_history(self, path, limit=20):
+        target = self.note_path(path)
+        name = target.relative_to(self.vault).as_posix()
+        self.index()  # Capture recent edits made directly in Obsidian before listing versions.
+        with self.connect() as c:
+            rows = c.execute("SELECT revision,recorded,length(content) AS bytes FROM note_versions "
+                             "WHERE path=? ORDER BY recorded DESC,rowid DESC LIMIT ?",
+                             (name, max(1, min(limit, 50)))).fetchall()
+        return {"path": name, "versions": [dict(row) for row in rows]}
+
+    def note_diff(self, path, old_revision, new_revision="current"):
+        import difflib
+        target = self.note_path(path)
+        name = target.relative_to(self.vault).as_posix()
+        def content(revision):
+            if revision == "current":
+                return target.read_bytes()
+            with self.connect() as c:
+                row = c.execute("SELECT content FROM note_versions WHERE path=? AND revision=?", (name, revision)).fetchone()
+            if row is None:
+                raise ValueError("Note revision not found")
+            return bytes(row["content"])
+        before, after = content(old_revision), content(new_revision)
+        lines = difflib.unified_diff(before.decode("utf-8").splitlines(keepends=True),
+                                     after.decode("utf-8").splitlines(keepends=True),
+                                     fromfile=old_revision, tofile=new_revision)
+        output, truncated = "", False
+        for line in lines:
+            if len(output) + len(line) > 12000:
+                truncated = True
+                break
+            output += line
+        return {"path": name, "diff": output, "truncated": truncated}
+
+    def restore_note(self, path, revision, expected_revision):
+        target = self.note_path(path)
+        name = target.relative_to(self.vault).as_posix()
+        with self.connect() as c:
+            row = c.execute("SELECT content FROM note_versions WHERE path=? AND revision=?", (name, revision)).fetchone()
+        if row is None:
+            raise ValueError("Note revision not found")
+        return self.write_memory(name, bytes(row["content"]).decode("utf-8"), expected_revision)
 
     def write_memory(self, path, content, expected_revision="new"):
         target = self.note_path(path)
@@ -111,19 +171,30 @@ class Hive:
         if not content.strip() or len(content) > 8000:
             raise ValueError("Memory must contain 1–8000 characters; split longer notes")
         with self.connect(write=True) as c:
-            current = hashlib.sha256(target.read_bytes()).hexdigest() if target.exists() else "new"
+            previous = target.read_bytes() if target.exists() else None
+            current = hashlib.sha256(previous).hexdigest() if previous is not None else "new"
             if current != expected_revision and current != hashlib.sha256(content.encode()).hexdigest():
                 raise ValueError("Note changed; read the current revision before updating")
+            if previous is not None:
+                self._remember_version(c, target.relative_to(self.vault).as_posix(), previous)
             atomic_write(target, content)
             self._index_note(c, target)
         return {"path": path, "revision": hashlib.sha256(content.encode()).hexdigest()}
 
     def _index_note(self, c, path):
-        raw = path.read_bytes().decode("utf-8")
+        data = path.read_bytes()
+        raw = data.decode("utf-8")
         name = path.relative_to(self.vault).as_posix()
+        self._remember_version(c, name, data)
         title = next((line[2:] for line in raw.splitlines() if line.startswith("# ")), path.stem)
         c.execute("DELETE FROM notes WHERE path=?", (name,))
-        c.execute("INSERT INTO notes VALUES (?,?,?,?)", (name, title, raw, hashlib.sha256(raw.encode()).hexdigest()))
+        c.execute("INSERT INTO notes VALUES (?,?,?,?)", (name, title, raw, hashlib.sha256(data).hexdigest()))
+
+    def _remember_version(self, c, name, data):
+        if name.split("/", 1)[0] not in {"00-System", "01-Memory", "02-Decisions", "03-Projects"} or "/Sessions/" in name:
+            return  # Generated task/dashboard/session views have their own source records.
+        c.execute("INSERT OR IGNORE INTO note_versions VALUES (?,?,?,?)",
+                  (name, hashlib.sha256(data).hexdigest(), data, utc()))
 
     def index(self):
         count = 0
@@ -140,9 +211,19 @@ class Hive:
                         continue
                     name = path.relative_to(self.vault).as_posix()
                     seen.add(name)
-                    revision = hashlib.sha256(path.read_bytes()).hexdigest()
+                    data = path.read_bytes()
+                    revision = hashlib.sha256(data).hexdigest()
+                    if not c.execute("SELECT 1 FROM note_versions WHERE path=? AND revision=?", (name, revision)).fetchone():
+                        # Existing installations may have an FTS copy but no version table yet.
+                        old = c.execute("SELECT content,revision FROM notes WHERE path=?", (name,)).fetchone()
+                        if old:
+                            old_data = old["content"].encode("utf-8")
+                            if hashlib.sha256(old_data).hexdigest() == old["revision"]:
+                                self._remember_version(c, name, old_data)
                     if existing.get(name) != revision:
                         self._index_note(c, path)
+                    else:
+                        self._remember_version(c, name, data)
                     count += 1
                 except (OSError, UnicodeError, ValueError):
                     continue
@@ -150,9 +231,25 @@ class Hive:
                 c.execute("DELETE FROM notes WHERE path=?", (missing,))
         return {"indexed_notes": count}
 
-    def search(self, query, limit=5, archive=False, project=""):
+    def search(self, query, limit=5, archive=False, project="", include_handoffs=False):
         from .context import search
-        return search(self, query, limit, archive, project)
+        notes = search(self, query, limit, archive, project)
+        if not include_handoffs:
+            return notes
+        from .memory_ops import search_handoffs
+        handoffs = search_handoffs(self, query, project, limit)
+        cap = max(1, min(limit, 5))
+        selected = handoffs[:2]
+        paths = {item.get("path") for item in selected}
+        return (selected + [item for item in notes if item.get("path") not in paths])[:cap]
+
+    def handoff_search(self, query, project="", limit=5):
+        from .memory_ops import search_handoffs
+        return search_handoffs(self, query, project, limit)
+
+    def memory_audit(self, project="", limit=50):
+        from .memory_ops import audit
+        return audit(self, project, limit)
 
     def context(self, agent="codex", project="", query="", budget_tokens=None):
         from .context import context

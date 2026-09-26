@@ -76,6 +76,54 @@ class StoreTests(unittest.TestCase):
         note = self.hive.read_note(path)
         self.hive.write_memory(path, "# Normalized\n", note["revision"])
 
+    def test_note_history_diff_and_checked_restore(self):
+        path = "01-Memory/history.md"
+        first = self.hive.write_memory(path, "# History\n\nFirst\n")
+        second = self.hive.write_memory(path, "# History\n\nSecond\n", first["revision"])
+        self.hive.note_path(path).write_bytes(b"# History\r\n\r\nManual edit\r\n")
+        self.hive.index()
+        versions = self.hive.note_history(path)["versions"]
+        self.assertEqual(len(versions), 3)
+        self.assertIn("-Second", self.hive.note_diff(path, second["revision"])["diff"])
+        with self.assertRaises(ValueError):
+            self.hive.restore_note(path, first["revision"], second["revision"])
+        current = self.hive.read_note(path)
+        self.hive.restore_note(path, first["revision"], current["revision"])
+        self.assertEqual(self.hive.read_note(path)["text"], "# History\n\nFirst\n")
+        self.assertEqual(self.hive.read_note(path, revision=versions[0]["revision"])["text"],
+                         "# History\r\n\r\nManual edit\r\n")
+        self.assertEqual(len(self.hive.read_note(path, include_history=True)["history"]), 3)
+
+    def test_read_only_audit_flags_structural_issues(self):
+        good = "# Preference\n\nKind: preference\nBasis: user-stated\nProject: cross-project\nRecorded: 2026-01-01\nSource: user\n\nKeep responses concise."
+        self.hive.write_memory("01-Memory/Solutions/one.md", good)
+        self.hive.write_memory("01-Memory/Solutions/two.md", good)
+        self.hive.write_memory("03-Projects/alpha/Decisions/bad.md",
+                               "# Bad\n\nKind: decision\nBasis: observation\nProject: beta\n")
+        before = self.hive.note_path("01-Memory/Solutions/two.md").read_bytes()
+        result = self.hive.memory_audit(project="alpha")
+        self.assertTrue(result["read_only"])
+        self.assertIn("duplicate", {issue["code"] for issue in result["issues"]})
+        self.assertIn("project_mismatch", {issue["code"] for issue in result["issues"]})
+        self.assertEqual(self.hive.note_path("01-Memory/Solutions/two.md").read_bytes(), before)
+
+    def test_handoff_search_is_scoped_and_opt_in(self):
+        session = self.hive.session_start("alpha", "codex", "Investigate cosmic widget")
+        self.hive.session_checkpoint(session["session"]["id"],
+            {"summary": "Cosmic widget fixed with bounded cache", "completed": ["Changed cache"],
+             "verification": ["Unit tests passed"], "status": "completed"}, 0)
+        task = self.hive.create_task(spec(project="alpha", title="Cosmic widget"))
+        claim = self.hive.claim("worker", "codex", task["id"])
+        self.hive.finish(task["id"], claim["claim_token"],
+                         {"status": "done", "summary": "Cosmic widget handoff", "verification": ["Checked"]})
+        self.hive.send("codex", "grok", "Cosmic widget needs review", task["id"])
+        hits = self.hive.handoff_search("cosmic widget", project="alpha")
+        self.assertEqual({hit["source_type"] for hit in hits}, {"checkpoint", "task_handoff", "message"})
+        self.assertEqual(self.hive.handoff_search("cosmic widget", project="beta"), [])
+        self.assertTrue(any(hit["source_type"] == "checkpoint" for hit in
+                            self.hive.search("cosmic widget", project="alpha", include_handoffs=True)))
+        self.assertFalse(any(hit.get("source_type") for hit in self.hive.search("cosmic widget", project="alpha")))
+
     def test_memory_boundary_and_personality_protection(self):
         for path in ("../outside.md", ".obsidian/config.md", "00-System/HIVE.md", "C:/secret.md"):
             with self.assertRaises(ValueError):

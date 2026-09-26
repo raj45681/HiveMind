@@ -60,9 +60,31 @@ def parser():
     sub.add_parser("offline", help="Use only this folder; ignore hosted URLs and preserve existing remote data")
     s = sub.add_parser("backup", help="Create a portable local bundle with Markdown and a consistent task database snapshot")
     s.add_argument("file", type=Path)
-    for name in ("search", "read"):
-        s = sub.add_parser(name)
-        s.add_argument("value")
+    s = sub.add_parser("search", help="Search bounded memory excerpts")
+    s.add_argument("value")
+    s.add_argument("--project", default="")
+    s.add_argument("--handoffs", action="store_true", help="Include stored task, checkpoint and message handoffs")
+    s = sub.add_parser("read", help="Read a note or saved revision")
+    s.add_argument("value")
+    s.add_argument("--revision", default="")
+    s.add_argument("--history", action="store_true")
+    s = sub.add_parser("history", help="List saved revisions for a local Markdown note")
+    s.add_argument("path")
+    s = sub.add_parser("diff", help="Show a bounded diff between a saved revision and current note")
+    s.add_argument("path")
+    s.add_argument("old_revision")
+    s.add_argument("new_revision", nargs="?", default="current")
+    s = sub.add_parser("restore", help="Restore an agent-writable note with a current-revision check")
+    s.add_argument("path")
+    s.add_argument("revision")
+    s.add_argument("--expected-revision", required=True)
+    s = sub.add_parser("memory-audit", help="Read-only checks for malformed or duplicate local memory")
+    s.add_argument("--project", default="")
+    s.add_argument("--limit", type=int, default=50)
+    s = sub.add_parser("handoff-search", help="Search stored task, checkpoint and message handoffs")
+    s.add_argument("query")
+    s.add_argument("--project", default="")
+    s.add_argument("--limit", type=int, default=5)
     s = sub.add_parser("create", help="Queue a task from a JSON file")
     s.add_argument("file", type=Path)
     s = sub.add_parser("run", help="Execute ONE task using the assigned CLI/account; consumes agent usage")
@@ -108,6 +130,20 @@ def save_config(root, config):
 async def execute(args):
     root = args.root.resolve()
     url, token, config = connection(root)
+    if args.cmd in {"history", "diff", "restore", "memory-audit", "handoff-search"}:
+        if url:
+            raise ValueError("Run local memory inspection on the device holding the HiveMind vault")
+        hive = Hive(root)
+        if args.cmd == "history":
+            return hive.note_history(args.path)
+        if args.cmd == "diff":
+            hive.index()
+            return hive.note_diff(args.path, args.old_revision, args.new_revision)
+        if args.cmd == "restore":
+            return hive.restore_note(args.path, args.revision, args.expected_revision)
+        if args.cmd == "memory-audit":
+            return hive.memory_audit(args.project, args.limit)
+        return hive.handoff_search(args.query, args.project, args.limit)
     if args.cmd == "semantic-setup":
         if url:
             raise ValueError("Install semantic recall on the coordinator device that holds the vault")
@@ -252,9 +288,11 @@ async def execute(args):
         if args.cmd == "status":
             return await api.call("task_list")
         if args.cmd == "search":
-            return await api.call("memory_search", query=args.value)
+            return await api.call("memory_search", query=args.value, project=args.project,
+                                  include_handoffs=args.handoffs)
         if args.cmd == "read":
-            return await api.call("note_read", path=args.value)
+            return await api.call("note_read", path=args.value, revision=args.revision,
+                                  include_history=args.history)
         if args.cmd == "create":
             return await api.call("task_create", spec=json.loads(args.file.read_text(encoding="utf-8-sig")))
         if args.cmd == "run":

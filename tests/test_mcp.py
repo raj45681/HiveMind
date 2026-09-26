@@ -28,6 +28,10 @@ class MCPTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(len(names), 16)
                     result = await client.call_tool("memory_write", {"path": "01-Memory/shared.md", "content": "# Shared\nMCP interoperability verified"})
                     self.assertFalse(result.isError)
+                    first_revision = json.loads(result.content[0].text)["revision"]
+                    updated = await client.call_tool("memory_write", {"path": "01-Memory/shared.md",
+                        "content": "# Shared\nMCP interoperability verified again", "expected_revision": first_revision})
+                    self.assertFalse(updated.isError)
                     await client.call_tool("message_send", {"sender": "codex", "recipient": "grok", "body": "Read shared memory"})
                     started = await client.call_tool('session_start', {'project':'app', 'agent':'codex', 'goal':'Fix login'})
                     self.assertFalse(started.isError)
@@ -42,6 +46,15 @@ class MCPTests(unittest.IsolatedAsyncioTestCase):
                     await client.initialize()
                     result = await client.call_tool("memory_search", {"query": "interoperability"})
                     self.assertIn("shared.md", result.content[0].text)
+                    historical = await client.call_tool("note_read", {"path": "01-Memory/shared.md",
+                        "revision": first_revision, "include_history": True})
+                    self.assertFalse(historical.isError)
+                    self.assertIn("interoperability verified", historical.content[0].text)
+                    self.assertIn("history", historical.content[0].text)
+                    handoffs = await client.call_tool("memory_search", {"query": "Login fixed",
+                        "project": "app", "include_handoffs": True})
+                    self.assertFalse(handoffs.isError)
+                    self.assertIn("checkpoint", handoffs.content[0].text)
                     result = await client.call_tool("message_inbox", {"recipient": "grok"})
                     self.assertIn("Read shared memory", result.content[0].text)
                     resumed = await client.call_tool('session_resume', {'project':'app'})

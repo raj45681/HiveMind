@@ -52,9 +52,11 @@ def build_server(root, remote_url="", remote_token="", hostname=""):
         return await call("hive_context", agent=agent, project=project, query=query, budget_tokens=budget_tokens)
 
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))
-    async def memory_search(query: str, limit: int = 5, archive: bool = False, project: str = "") -> str:
-        """Rank up to 5 complete excerpts by relevance, project and freshness. Set project to exclude other projects' notes. Archives/candidates excluded by default."""
-        return await call("memory_search", query=query, limit=limit, archive=archive, project=project)
+    async def memory_search(query: str, limit: int = 5, archive: bool = False, project: str = "",
+                            include_handoffs: bool = False) -> str:
+        """Rank up to 5 bounded excerpts. Set project to exclude other projects' notes. Opt into stored checkpoint/task/message handoffs with include_handoffs; archives/candidates excluded by default."""
+        return await call("memory_search", query=query, limit=limit, archive=archive, project=project,
+                          include_handoffs=include_handoffs)
 
     @mcp.tool()
     async def session_start(project: str, agent: Agent, goal: str, session_id: str = "") -> str:
@@ -72,9 +74,11 @@ def build_server(root, remote_url="", remote_token="", hostname=""):
         return await call("session_resume", project=project, ident=ident)
 
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))
-    async def note_read(path: str, offset: int = 0, limit: int = 4000) -> str:
-        """Read a vault-relative .md path with a revision and bounded text. Page only as needed."""
-        return await call("note_read", path=path, offset=offset, limit=limit)
+    async def note_read(path: str, offset: int = 0, limit: int = 4000, revision: str = "",
+                        include_history: bool = False) -> str:
+        """Read a bounded vault note. Optional revision reads a saved version; include_history lists recent revision IDs. Page only as needed."""
+        return await call("note_read", path=path, offset=offset, limit=limit,
+                          revision=revision, include_history=include_history)
 
     @mcp.tool()
     async def memory_write(path: str, content: str, expected_revision: str = "new") -> str:

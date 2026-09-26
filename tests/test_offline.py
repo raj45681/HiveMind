@@ -52,7 +52,8 @@ class BundleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / 'Original Hive'
             hive = Hive(root)
-            hive.write_memory('01-Memory/User/taste.md', '# Taste\nPrefer concise summaries')
+            first = hive.write_memory('01-Memory/User/taste.md', '# Taste\nPrefer concise summaries')
+            hive.write_memory('01-Memory/User/taste.md', '# Taste\nPrefer concise summaries and examples', first['revision'])
             task = hive.create_task({'title': 'Inspect', 'objective': 'Inspect a file', 'acceptance': ['Evidence']})
             hive.send('codex', 'grok', 'Ready for review', task['id'])
             (root / 'hive.local.json').write_text('{"memory_url":"https://old.example"}')
@@ -66,6 +67,8 @@ class BundleTests(unittest.TestCase):
                 archive.extractall(Path(tmp) / 'restore')
             restored = Hive(Path(tmp) / 'restore/HiveMind')
             self.assertIn('concise', restored.read_note('01-Memory/User/taste.md')['text'])
+            self.assertIn('Prefer concise summaries', restored.read_note('01-Memory/User/taste.md',
+                                                                          revision=first['revision'])['text'])
             self.assertEqual(restored.get_task(task['id'])['spec']['title'], 'Inspect')
             self.assertIn('Ready for review', json.dumps(restored.inbox('grok')))
             with closing(sqlite3.connect(restored.db)) as db:

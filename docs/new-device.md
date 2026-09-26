@@ -1,8 +1,9 @@
-# Add a Windows or Linux device
+# Move HiveMind to another device
 
 ## Current setup: portable local memory
 
-HiveMind uses a local folder by default. Create a fresh
+HiveMind is designed for one active device. This guide covers migration or
+recovery, not ongoing synchronization. Create a fresh
 bundle with `hive.py backup PATH.zip`, extract its `HiveMind` folder on the next
 device, install Python 3.11+ and your agent CLIs, then run that folder's
 `hivemind.cmd` from each project's CMD prompt. On Linux run
@@ -14,10 +15,11 @@ Use one active copy and move a new bundle when switching devices. Offline copies
 do not sync or merge automatically. Keep working repositories and their artifacts
 separately; the portable memory bundle excludes worktrees, run logs and CLI logins.
 
-## Optional remote coordination (not active)
+## Legacy optional remote coordination (not active)
 
-The remaining steps describe a separately configured server. They are not needed
-for local use and are not performed by the project installer.
+The remaining steps describe a separately configured server retained for existing
+installations. They are outside the single-device workflow and are not performed
+by the project installer.
 
 You do not need access to an existing second device to prepare this. Each future
 device installs the same bundle and keeps its own CLI logins and project paths.
