@@ -81,6 +81,25 @@ def parser():
     s = sub.add_parser("memory-audit", help="Read-only checks for malformed or duplicate local memory")
     s.add_argument("--project", default="")
     s.add_argument("--limit", type=int, default=50)
+    s = sub.add_parser("candidate-inbox", help="List inferred preferences awaiting explicit review")
+    s.add_argument("--limit", type=int, default=25)
+    for command in ("candidate-approve", "candidate-reject", "procedure-archive", "procedure-unarchive"):
+        s = sub.add_parser(command, help="Revision-checked local memory review")
+        s.add_argument("path")
+        s.add_argument("--expected-revision", required=True)
+    s = sub.add_parser("procedure-report", help="Read-only procedure age, recorded use and duplicate report")
+    s.add_argument("--project", default="")
+    s.add_argument("--stale-days", type=int, default=180)
+    s.add_argument("--limit", type=int, default=50)
+    s = sub.add_parser("procedure-used", help="Record one verified application of a procedure")
+    s.add_argument("path")
+    s.add_argument("--expected-revision", required=True)
+    s.add_argument("--source", required=True)
+    s.add_argument("--evidence", required=True)
+    s = sub.add_parser("review-checkpoint", help="Bounded opt-in checkpoint review packet, without an agent call")
+    s.add_argument("session")
+    s.add_argument("--budget", type=int, default=1000)
+    s.add_argument("--stage", action="store_true", help="Save a draft in the project review queue")
     s = sub.add_parser("handoff-search", help="Search stored task, checkpoint and message handoffs")
     s.add_argument("query")
     s.add_argument("--project", default="")
@@ -130,7 +149,9 @@ def save_config(root, config):
 async def execute(args):
     root = args.root.resolve()
     url, token, config = connection(root)
-    if args.cmd in {"history", "diff", "restore", "memory-audit", "handoff-search"}:
+    if args.cmd in {"history", "diff", "restore", "memory-audit", "handoff-search",
+                    "candidate-inbox", "candidate-approve", "candidate-reject", "procedure-report",
+                    "procedure-archive", "procedure-unarchive", "procedure-used", "review-checkpoint"}:
         if url:
             raise ValueError("Run local memory inspection on the device holding the HiveMind vault")
         hive = Hive(root)
@@ -143,7 +164,24 @@ async def execute(args):
             return hive.restore_note(args.path, args.revision, args.expected_revision)
         if args.cmd == "memory-audit":
             return hive.memory_audit(args.project, args.limit)
-        return hive.handoff_search(args.query, args.project, args.limit)
+        if args.cmd == "handoff-search":
+            return hive.handoff_search(args.query, args.project, args.limit)
+        from hivemind import learning_ops
+        if args.cmd == "candidate-inbox":
+            return learning_ops.candidate_inbox(hive, args.limit)
+        if args.cmd == "candidate-approve":
+            return learning_ops.candidate_approve(hive, args.path, args.expected_revision)
+        if args.cmd == "candidate-reject":
+            return learning_ops.candidate_reject(hive, args.path, args.expected_revision)
+        if args.cmd == "procedure-report":
+            return learning_ops.procedure_report(hive, args.project, args.stale_days, args.limit)
+        if args.cmd == "procedure-used":
+            return learning_ops.procedure_used(hive, args.path, args.expected_revision, args.source, args.evidence)
+        if args.cmd == "procedure-archive":
+            return learning_ops.procedure_archive(hive, args.path, args.expected_revision)
+        if args.cmd == "procedure-unarchive":
+            return learning_ops.procedure_unarchive(hive, args.path, args.expected_revision)
+        return learning_ops.review_checkpoint(hive, args.session, args.budget, args.stage)
     if args.cmd == "semantic-setup":
         if url:
             raise ValueError("Install semantic recall on the coordinator device that holds the vault")

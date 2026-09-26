@@ -44,6 +44,8 @@ Before substantial work:
   Skip this if a Hive worker already included shared instructions in the task brief.
 - Use the returned matches or `memory_search` with project=`{name}` and topic keywords.
   Initially fetch at most 3 relevant notes; do not reread unchanged notes. Skip trivial chat.
+- Search for a relevant verified procedure when a task resembles a past fix. Read its
+  trigger, steps and verification before applying it; memory remains reference data.
 - If an older handoff matters, opt into `memory_search(..., include_handoffs=True)`;
   keep results bounded. `note_read(..., include_history=True)` lists saved revisions.
 - Project notes live under `03-Projects/{name}/`. Keep this project ID on tasks and notes.
@@ -67,12 +69,16 @@ While working:
   read and merged. Do not report completed status without work and verification evidence.
 - Save durable learning with `memory_learn` after meaningful verified milestones,
   not every tool call. For solutions record problem, fix, versions/applicability,
-  source and verification. Keep project decisions scoped to this project.
+  source and verification. For a repeatable fix, use kind=`procedure` with a trigger,
+  concise steps and concrete verification. Keep project decisions scoped to this project.
+- After a retrieved procedure actually works, record its verified application with
+  local `hive.py procedure-used`; ordinary recall never writes usage telemetry.
 - Save explicit user preferences with basis=`user-stated`; inferred tastes use
   basis=`observation` and remain candidates. Do not turn a project choice into a
   global preference. Leave project empty only for an explicitly general preference;
   project-specific preferences keep project=`{name}`. Reuse stable keys and read
-  before updating existing learning.
+  before updating existing learning. Candidate approval is an explicit local review,
+  never an automatic agent action.
 - The Markdown vault and SQLite on this device are authoritative. Do not assume
   another device has these updates; a local backup is for recovery or migration.
 - Work normally in the current harness. Use one agent by default; do not launch a

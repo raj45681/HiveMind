@@ -81,6 +81,16 @@ class MCPTests(unittest.IsolatedAsyncioTestCase):
                     updated = await client.call_tool("memory_write", {"path": "01-Memory/shared.md",
                         "content": "# Shared\nMCP interoperability verified again", "expected_revision": first_revision})
                     self.assertFalse(updated.isError)
+                    procedure = await client.call_tool("memory_learn", {
+                        "kind": "procedure", "key": "repair-login-cache", "summary": "Repair stale login cache",
+                        "source": "verified test", "project": "app", "basis": "verified-result",
+                        "trigger": "Login cache serves an old token", "steps": ["Clear the expired token", "Retry login"],
+                        "evidence": "Login integration test passed"})
+                    self.assertFalse(procedure.isError)
+                    procedure_path = json.loads(procedure.content[0].text)["path"]
+                    self.assertEqual(procedure_path, "03-Projects/app/Procedures/repair-login-cache.md")
+                    found = await client.call_tool("memory_search", {"query": "expired token", "project": "app"})
+                    self.assertIn(procedure_path, found.content[0].text)
                     await client.call_tool("message_send", {"sender": "codex", "recipient": "grok", "body": "Read shared memory"})
                     started = await client.call_tool('session_start', {'project':'app', 'agent':'codex', 'goal':'Fix login'})
                     self.assertFalse(started.isError)

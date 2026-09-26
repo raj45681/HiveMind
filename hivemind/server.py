@@ -96,16 +96,18 @@ def build_server(root, remote_url="", remote_token="", hostname=""):
         return await call("task_create", spec=spec.model_dump())
 
     @mcp.tool(annotations=MUTATING)
-    async def memory_learn(kind: Literal["preference", "solution", "decision"], key: str, summary: str,
+    async def memory_learn(kind: Literal["preference", "solution", "decision", "procedure"], key: str, summary: str,
                            source: str, project: str = "", evidence: str = "",
                            basis: Literal["user-stated", "verified-result", "observation"] = "observation",
-                           expected_revision: str = "new") -> str:
+                           expected_revision: str = "new", trigger: str = "", steps: list[str] | None = None,
+                           applicability: str = "") -> str:
         """Save learning at milestones. Only user-stated preferences enter the shared profile; inferred tastes stay candidates.
-        Solutions require verified-result basis and evidence. Describe the problem, fix and applicability.
+        Solutions and procedures require verified-result basis and evidence. Procedures also need a trigger and 1-8 steps.
         Use a stable lowercase key; to revise, read the note then supply its revision.
         """
         return await call("memory_learn", kind=kind, key=key, summary=summary, source=source, project=project,
-                          evidence=evidence, basis=basis, expected_revision=expected_revision)
+                          evidence=evidence, basis=basis, expected_revision=expected_revision,
+                          trigger=trigger, steps=steps, applicability=applicability)
 
     @mcp.tool(annotations=READ_ONLY)
     async def task_get(ident: str) -> str:

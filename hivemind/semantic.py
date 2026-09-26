@@ -96,7 +96,8 @@ def _schema(c):
 
 
 def _eligible(path, project, archive):
-    if path.startswith("01-Memory/Candidates/") or (not archive and path.startswith("99-Archive/")):
+    if (path.startswith("01-Memory/Candidates/") or "/Review-Queue/" in path
+            or (not archive and path.startswith("99-Archive/"))):
         return False
     if project and path.lower().startswith("03-projects/"):
         return path.lower().startswith(f"03-projects/{project.lower()}/")
@@ -112,6 +113,7 @@ def recall(hive, query, project="", archive=False, limit=80):
         notes = {r["path"]: r for r in c.execute("SELECT path,title,content,revision FROM notes")
                  if r["path"].startswith(("01-Memory/", "02-Decisions/", "03-Projects/", "99-Archive/"))
                  and not r["path"].startswith("01-Memory/Candidates/")
+                 and "/Review-Queue/" not in r["path"]
                  and "/Sessions/" not in r["path"]}
         prior = {r["path"]: r["revision"] for r in c.execute("SELECT path,revision,model FROM semantic_notes WHERE model=?", (INDEX_VERSION,))}
     changed = [row for path, row in notes.items() if prior.get(path) != row["revision"]]

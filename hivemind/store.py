@@ -69,6 +69,10 @@ class Hive:
                     path TEXT NOT NULL, revision TEXT NOT NULL, content BLOB NOT NULL,
                     recorded TEXT NOT NULL, PRIMARY KEY(path, revision));
                 CREATE INDEX IF NOT EXISTS note_versions_recent ON note_versions(path, recorded DESC);
+                CREATE TABLE IF NOT EXISTS procedure_uses (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, revision TEXT NOT NULL,
+                    source TEXT NOT NULL, evidence TEXT NOT NULL, used TEXT NOT NULL);
+                CREATE INDEX IF NOT EXISTS procedure_uses_path ON procedure_uses(path, used DESC);
             """)
 
     @contextmanager
@@ -239,7 +243,10 @@ class Hive:
         from .memory_ops import search_handoffs
         handoffs = search_handoffs(self, query, project, limit)
         cap = max(1, min(limit, 5))
-        selected = handoffs[:2]
+        selected = handoffs[:min(2, cap)]
+        checkpoint = next((item for item in handoffs if item.get("source_type") == "checkpoint"), None)
+        if checkpoint and checkpoint not in selected:
+            selected = selected[:1] + [checkpoint] if cap > 1 else [checkpoint]
         paths = {item.get("path") for item in selected}
         return (selected + [item for item in notes if item.get("path") not in paths])[:cap]
 

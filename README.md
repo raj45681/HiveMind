@@ -174,7 +174,7 @@ flowchart TB
 | When | What happens |
 | :--- | :--- |
 | **Start a task** | Fetch a bounded brief: shared style, confirmed preferences, project state, and relevant search matches. |
-| **Reach a milestone** | Record a verified solution or scoped decision with its source and evidence. |
+| **Reach a milestone** | Record a verified solution, reusable procedure or scoped decision with its source and evidence. |
 | **Finish work** | Update project state and leave a concise handoff for the next agent. |
 | **Switch projects** | Reuse confirmed preferences; search for applicable past solutions. Project choices stay scoped. |
 
@@ -186,8 +186,11 @@ coordination remain deterministic;
 reading the returned text still consumes context. Inferred tastes stay separate
 from confirmed preferences. Current instructions always take precedence over memory.
 
-History, audit and older handoff search are **on demand**. They do not expand the
-default brief or add MCP tools. [Use local memory inspection →](docs/local-memory-operations.md)
+Candidate review, checkpoint review, procedure maintenance, history, audit and older
+handoff search are **on demand**. They do not expand the default brief or add MCP
+tools. Agents can save verified procedures through the existing `memory_learn` tool;
+inferred preferences need explicit local approval before they enter the profile.
+[Use local memory operations →](docs/local-memory-operations.md)
 
 ### One server, up to 17 tools
 

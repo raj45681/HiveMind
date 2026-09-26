@@ -55,6 +55,7 @@ def search(hive, query, limit=5, archive=False, project=""):
         rows = c.execute("""SELECT path,title,content,revision,bm25(notes,0,3,1,0) AS rank
             FROM notes WHERE notes MATCH ? AND (? OR path NOT LIKE '99-Archive/%')
             AND path NOT LIKE '01-Memory/Candidates/%'
+            AND path NOT LIKE '03-Projects/%/Review-Queue/%'
             AND (?='' OR path NOT LIKE '03-Projects/%' OR lower(substr(path,1,?))=lower(?))
             ORDER BY rank,path LIMIT 80""", (match, archive, project, len(prefix), prefix)).fetchall()
     results = []

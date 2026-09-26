@@ -111,6 +111,12 @@ def audit(hive, project="", limit=50):
             if fields.get("kind") == "solution" and (fields.get("basis") != "verified-result" or
                                                        not re.search(r"(?m)^Verification / applicability:\s*\n\S", body)):
                 issues.append({"path": relative, "code": "unverified_solution", "detail": "Solution lacks verified basis or evidence"})
+            if fields.get("kind") == "procedure" and (fields.get("basis") != "verified-result" or
+                    not re.search(r"(?m)^When to use:\s*\S", body) or
+                    not re.search(r"(?m)^## Steps\s*\n\s*1\.\s+\S", body) or
+                    not re.search(r"(?m)^Verification / applicability:\s*\n\S", body)):
+                issues.append({"path": relative, "code": "unverified_procedure",
+                               "detail": "Procedure lacks trigger, steps, verified basis or evidence"})
             if parts[0] == "03-Projects" and len(parts) > 1 and fields.get("project", "").lower() not in {"", parts[1].lower()}:
                 issues.append({"path": relative, "code": "project_mismatch", "detail": "Project metadata differs from note folder"})
     return {"project": project or None, "checked_notes": checked, "issue_count": len(issues),

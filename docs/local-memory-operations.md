@@ -67,3 +67,62 @@ summaries and verification remain agent-reported evidence, not proof on their ow
 
 The audit and search use deterministic local processing. Reading returned text
 still consumes an agent's normal context tokens when you pass it to a model.
+
+## Review inferred preferences
+
+An agent can save an observed taste with `memory_learn(kind="preference",
+basis="observation")`. It goes into `01-Memory/Candidates/<project>/` (or
+`cross-project`) and is excluded from ordinary search and context. A person can
+inspect the full note with `read`, then approve or reject its exact revision:
+
+```cmd
+.venv\Scripts\python.exe hive.py candidate-inbox
+.venv\Scripts\python.exe hive.py read "01-Memory/Candidates/myapp/bright-ui.md"
+.venv\Scripts\python.exe hive.py candidate-approve "01-Memory/Candidates/myapp/bright-ui.md" --expected-revision CURRENT_REVISION
+.venv\Scripts\python.exe hive.py candidate-reject "01-Memory/Candidates/myapp/other-idea.md" --expected-revision CURRENT_REVISION
+```
+
+Approval records `Basis: user-approved` and moves a project preference only into
+that project's confirmed preferences. A cross-project candidate enters the shared
+profile only when explicitly approved. The original candidate is archived; rejection
+also archives it. Revision checks refuse stale decisions. Existing confirmed notes
+are never overwritten by approval.
+
+## Reusable procedures
+
+After a repeatable fix is verified, an agent can use the existing `memory_learn`
+MCP tool with `kind="procedure"`, `basis="verified-result"`, a stable key,
+summary, source, trigger, one to eight steps, and concrete evidence. Set `project`
+for a project-only runbook or leave it empty for a genuinely shared procedure.
+Procedures are ordinary Markdown notes in `Procedures/`, found with the existing
+`memory_search` and `hive_context` query. They are not loaded wholesale or run
+automatically. Inspect the trigger and verification before applying one.
+
+```cmd
+.venv\Scripts\python.exe hive.py procedure-report --project myapp --stale-days 180
+.venv\Scripts\python.exe hive.py procedure-used "03-Projects/myapp/Procedures/cache-repair.md" --expected-revision CURRENT_REVISION --source "task 123" --evidence "Cache test passed"
+.venv\Scripts\python.exe hive.py procedure-archive "03-Projects/myapp/Procedures/cache-repair.md" --expected-revision CURRENT_REVISION
+.venv\Scripts\python.exe hive.py procedure-unarchive "99-Archive/03-Projects/myapp/Procedures/cache-repair.md" --expected-revision ARCHIVED_REVISION
+```
+
+The report is read-only and shows age since the last file edit, explicitly recorded
+verified applications, and pairs with identical normalized steps. An agent or person
+records an application after checking it worked; ordinary `note_read` stays read-only.
+Unrecorded applications remain unknown, and duplicates are mechanical, not semantic.
+Archiving removes a
+procedure from normal recall but preserves the note and its previous versions.
+Unarchive refuses to overwrite a current active note.
+
+## Opt-in checkpoint review
+
+```cmd
+.venv\Scripts\python.exe hive.py review-checkpoint SESSION-ID --budget 1000
+.venv\Scripts\python.exe hive.py review-checkpoint SESSION-ID --budget 1000 --stage
+```
+
+The command makes a bounded review packet from the latest saved checkpoint without
+calling a model. `--stage` saves it as a draft under the project's `Review-Queue/`;
+drafts are excluded from ordinary search and automatic context. Running it again
+for the same checkpoint preserves any edits to the staged draft. A checkpoint is
+agent-reported, so verify the source before converting a lesson into a procedure
+or a confirmed preference. This command does not promote anything by itself.
