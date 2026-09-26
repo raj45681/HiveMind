@@ -24,10 +24,14 @@ AGENTS.md, other tool calls, and the rest of the conversation are outside this
 budget. Non-English text and code can tokenize differently.
 
 The brief includes shared rules, preferences, project state and preferences, a
-compact latest-session packet, and up to three relevant notes. Small budgets can
-omit sections or evidence; `omitted`, `details_omitted`, and `omitted_items` make
-that explicit. Use `session_resume` for the full checkpoint and `note_read` for
-an original note. Never overwrite a full note with a context excerpt.
+compact latest-session packet, and up to three query-matched notes. With a query,
+the shared agreement and latest session are packed first, then matching notes get
+space before the remaining standing context. A matching preference or project-state
+note stays in its usual section and is not duplicated. Without a query, the brief
+keeps its standing-context order. Small budgets can omit sections or evidence;
+`omitted`, `details_omitted`, and `omitted_items` make that explicit. Use
+`session_resume` for the full checkpoint and `note_read` for an original note.
+Never overwrite a full note with a context excerpt.
 
 Excerpts contain whole source sentences or bullets. Long units that cannot fit
 are omitted rather than cut in half. They are extractive selections, not generated

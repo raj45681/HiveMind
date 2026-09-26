@@ -179,7 +179,8 @@ flowchart TB
 | **Switch projects** | Reuse confirmed preferences; search for applicable past solutions. Project choices stay scoped. |
 
 **Small context by design:** configurable briefs (default 1800 estimated tokens),
-complete excerpts ranked by project, relevance and freshness, revision-checked writes,
+query-matched notes packed before the remaining standing context, complete excerpts
+ranked by project, relevance and freshness, revision-checked writes,
 and no model-driven queue polling. Optional semantic search runs local embedding
 inference only; it makes no paid agent or hosted API calls. Other search and
 coordination remain deterministic;

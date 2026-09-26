@@ -70,6 +70,30 @@ class ContextTests(unittest.TestCase):
         self.assertLessEqual(size(tiny), 2048)
         self.assertEqual(self.hive.read_note(original['path']), original)
 
+    def test_query_matches_survive_dense_standing_context_at_1000_tokens(self):
+        for name in ('HIVE', 'Personality', 'Working-Style'):
+            atomic_write(self.hive.vault / f'00-System/{name}.md',
+                         'Follow the established project workflow.\n\n' * 40)
+        self.hive.write_memory('01-Memory/User/Preferences.md',
+                               '# Preferences\n\nKeep responses concise and practical.\n\n' * 30)
+        self.hive.write_memory('03-Projects/app/Current-State.md',
+                               '# State\n\nThe application has a long history.\n\n' * 70)
+        session = self.hive.session_start('app', 'codex', 'Continue the application')['session']
+        self.hive.session_checkpoint(session['id'], {'summary': 'Recent work completed.',
+            'next_steps': ['Review the next task'], 'status': 'active'}, 0)
+        expected = []
+        for index in range(3):
+            path = f'01-Memory/Solutions/regolith-cache-race-{index}.md'
+            self.hive.write_memory(path,
+                f'# Fix {index}\n\nThe regolith cache race was resolved by step {index}.\n')
+            expected.append(path)
+
+        brief = self.hive.context(project='app', query='regolith cache race', budget_tokens=1000)
+        self.assertEqual({card['path'] for card in brief['relevant']}, set(expected))
+        self.assertIsNotNone(brief['session'])
+        self.assertLessEqual(size(brief), 4000)
+        self.assertLessEqual(brief['budget']['estimated_tokens'], 1000)
+
 
 if __name__ == '__main__':
     unittest.main()

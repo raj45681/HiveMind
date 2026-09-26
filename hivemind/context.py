@@ -168,7 +168,9 @@ def context(hive, agent="codex", project="", query="", budget_tokens=None):
             return
         seen.add(name.lower())
 
-    # Reserve room for resuming work, even with a small requested brief.
+    # Keep the shared agreement and latest handoff, then give query matches first
+    # claim on the remaining budget. A matching preference/state note retains its
+    # normal section so clients do not lose the distinction between kinds of memory.
     instruction_allowance = max(120, int(cap * .075))
     add('instructions', '00-System/HIVE.md', instruction_allowance)
     if project:
@@ -197,6 +199,32 @@ def context(hive, agent="codex", project="", query="", budget_tokens=None):
                 result['budget']['omitted_items'] += 1
             else:
                 seen.add(session['path'].lower())
+    if query:
+        instruction_paths = {f'00-System/{name}.md'.lower() for name in
+                             ('Personality', 'Working-Style')}
+        instruction_paths.add(f'05-Agents/{AGENTS[agent]}.md'.lower())
+        state_path = f'03-Projects/{project}/Current-State.md'.lower() if project else ''
+        project_preferences = f'03-Projects/{project}/Preferences/'.lower() if project else ''
+        prioritized = 0
+        for match in search(hive, query, limit=5, project=project):
+            name, lower = match['path'], match['path'].lower()
+            if lower in seen:
+                continue
+            if lower == state_path:
+                add('project_state', name, int(cap * .15), True, match)
+            elif lower.startswith(project_preferences) and project_preferences:
+                add('project_preferences', name, int(cap * .08), preferred=match)
+            elif lower.startswith('01-memory/user/'):
+                add('preferences', name, int(cap * .12), preferred=match)
+            elif lower in instruction_paths:
+                add('instructions', name, instruction_allowance, preferred=match)
+            else:
+                add('relevant', name, int(cap * .10), preferred=match)
+            if lower in seen:
+                prioritized += 1
+            if prioritized == 3:
+                break
+    if project:
         add('project_state', f'03-Projects/{project}/Current-State.md', int(cap * .15), True)
     add('preferences', '01-Memory/User/Preferences.md', int(cap * .12))
     for section, folder in [('project_preferences', f'03-Projects/{project}/Preferences' if project else ''),
@@ -209,11 +237,6 @@ def context(hive, agent="codex", project="", query="", budget_tokens=None):
     for name in ('Personality', 'Working-Style'):
         add('instructions', f'00-System/{name}.md', instruction_allowance)
     add('instructions', f'05-Agents/{AGENTS[agent]}.md', instruction_allowance)
-    if query:
-        for match in search(hive, query, limit=5, project=project):
-            add('relevant', match['path'], int(cap * .10), preferred=match)
-            if len(result['relevant']) == 3:
-                break
     # Include the envelope itself in the estimate, including UTF-8 expansion and JSON escapes.
     for _ in range(3):
         result['budget']['estimated_tokens'] = math.ceil(size(result) / 4)
