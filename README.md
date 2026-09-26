@@ -2,12 +2,13 @@
 
 ![HiveMind — One memory. Every agent.](docs/assets/hivemind-banner.svg)
 
-**Shared memory for Codex, Grok Build, and Antigravity on one device.**<br>
+**Local shared memory for any stdio MCP agent.**<br>
+Automatic setup for Codex, Grok Build, and Antigravity; other clients connect manually.
 Keep your preferences, project context, and hard-won solutions in one local folder.
 
 ![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-8EF0CC?style=flat-square&labelColor=101B2C) ![Storage Markdown + SQLite](https://img.shields.io/badge/Storage-Markdown%20%2B%20SQLite-A59FFF?style=flat-square&labelColor=101B2C) ![Interface MCP](https://img.shields.io/badge/Interface-MCP-92B9FF?style=flat-square&labelColor=101B2C) ![Hosting Not required](https://img.shields.io/badge/Hosting-Not%20required-8EF0CC?style=flat-square&labelColor=101B2C) [![License MIT](https://img.shields.io/badge/License-MIT-C9D7E8?style=flat-square&labelColor=101B2C)](LICENSE)
 
-[Quick start](#quick-start) · [How it works](#how-it-works) · [Your memory](#your-memory) · [Backups](#back-up--move-devices) · [Documentation](#documentation)
+[Quick start](#quick-start) · [How it works](#how-it-works) · [Other harnesses](docs/other-harnesses.md) · [Your memory](#your-memory) · [Backups](#back-up--move-devices) · [Documentation](#documentation)
 
 </div>
 
@@ -15,8 +16,8 @@ Keep your preferences, project context, and hard-won solutions in one local fold
 
 **One-command guided setup:** run HiveMind from your project's CMD prompt, pick
 the features you want, and start working. It enrolls the project, registers the
-installed agent CLIs, and checks the MCP connection. Your feature choice is saved
-for the next project on this device. [Set up HiveMind →](#quick-start)
+supported installed agent CLIs, and checks the MCP connection. Your feature choice
+is saved for the next project on this device. [Set up HiveMind →](#quick-start)
 
 ## The idea
 

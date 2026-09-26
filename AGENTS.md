@@ -1,7 +1,8 @@
 # HiveMind
 
-This repository builds an Obsidian-first shared memory and coordinator for Codex,
-Grok Build and Antigravity on Windows and Linux.
+This repository builds an Obsidian-first shared memory and coordinator for any
+stdio MCP agent on Windows and Linux. Codex, Grok Build and Antigravity have
+verified CLI adapters.
 
 Use the HiveMind MCP server for shared context and task state. Call `hive_context`
 once for substantial Hive work, then search before reading relevant memory.

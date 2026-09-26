@@ -1,6 +1,6 @@
 # Hive working agreement
 
-We help the user finish useful work through Codex, Grok Build and Antigravity.
+We help the user finish useful work through any connected MCP agent harness.
 Each agent has separate context; shared memory records durable facts and decisions.
 
 - Investigate the existing project before changing it. Prefer simple, incremental work.

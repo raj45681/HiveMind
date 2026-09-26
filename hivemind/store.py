@@ -442,7 +442,7 @@ class Hive:
 
     def _export(self, c):
         rows = c.execute("SELECT * FROM tasks ORDER BY created DESC,id").fetchall()
-        table = ["# HiveMind", "", "Shared memory for Codex, Grok Build, and Antigravity.", "",
+        table = ["# HiveMind", "", "Shared memory for connected MCP agent harnesses.", "",
                  "[[START|Start here]] · [[00-System/HIVE|Working agreement]] · [[00-System/Working-Style|Working style]]", "",
                  "## Tasks", "", "Generated from the coordinator. Use Hive tools to change task state.", "",
                  "| Task | Agent | Status | Worker |", "| --- | --- | --- | --- |"]
