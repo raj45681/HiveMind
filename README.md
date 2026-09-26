@@ -13,6 +13,11 @@ Keep your preferences, project context, and hard-won solutions in one local fold
 
 ---
 
+**One-command guided setup:** run HiveMind from your project's CMD prompt, pick
+the features you want, and start working. It enrolls the project, registers the
+installed agent CLIs, and checks the MCP connection. Your feature choice is saved
+for the next project on this device. [Set up HiveMind →](#quick-start)
+
 ## The idea
 
 You finish a task in Codex. Later, Grok opens the same project and retrieves what
@@ -64,7 +69,7 @@ and device credentials remain local and are excluded from Git.
 
 ### 1 · Get HiveMind and enroll your project
 
-Open **CMD in the project you want to work on**, then run:
+Open **CMD in the project you want to work on** and paste this single line:
 
 ```cmd
 (if not exist "%USERPROFILE%\HiveMind\hivemind.cmd" call git clone https://github.com/raj45681/HiveMind.git "%USERPROFILE%\HiveMind") & call "%USERPROFILE%\HiveMind\hivemind.cmd"
@@ -76,14 +81,23 @@ Already have HiveMind installed? From any project's CMD prompt:
 "%USERPROFILE%\HiveMind\hivemind.cmd"
 ```
 
-On a fresh interactive install, HiveMind asks which local features to enable:
-**core only**, **semantic recall**, **Graphify**, **both**, or **all** (both plus
-two short working-style questions). Semantic recall downloads a local model;
-Graphify needs Python 3.12+ and downloads an isolated dependency. The choice is
-saved on this device. Semantic recall then serves every enrolled project, and a
-Graphify choice is applied to each new project. No paid agent session is launched.
+On the first interactive run, choose what to include:
 
-Both commands are safe to rerun. Onboarding enrolls the project, registers each
+| Choice | Setup |
+| :--- | :--- |
+| **0 · Core** | Shared Markdown memory, SQLite task state, and MCP bridge |
+| **1 · Semantic** | Core plus local paraphrase recall |
+| **2 · Graphify** | Core plus local code relationships (Python 3.12+) |
+| **3 · Both** | Core, semantic recall, and Graphify |
+| **4 · All** | Both extras plus two optional working-style questions |
+
+Semantic recall downloads a local model; Graphify downloads an isolated
+dependency. HiveMind saves your semantic and Graphify choices on this device.
+For the next project, run the same command from that project's CMD prompt; it
+reuses those choices without asking again. The **All** option saves only the
+working-style answers you actually enter. Setup makes no paid agent call.
+
+Both commands are safe to rerun. Setup enrolls the project, registers each
 installed CLI independently, then opens the local MCP bridge and calls
 `hive_context` without starting an AI session. The final report shows each agent
 as **ready**, **skipped**, or **needs-action**, plus the bridge check and next step.
@@ -91,17 +105,27 @@ A CLI marked ready has its HiveMind entry registered and listed; restart an acti
 agent session to load it. A skipped CLI can be installed later, then the same
 setup command will register it. If one CLI fails, the others are still attempted.
 
-To change your saved feature choice later, run this from the project you are setting up:
+To reopen the menu and change the defaults for future projects, run this from
+the project you are setting up:
 
 ```cmd
 "%USERPROFILE%\HiveMind\hivemind.cmd" --configure
 ```
 
+If you installed HiveMind before the guided menu was added, use `--configure`
+once to set your defaults.
+
+No separate agent skill or manual MCP configuration is needed. Restart any agent
+session that was open during setup so it can load the new bridge.
+
+<details>
+<summary><strong>Advanced: unattended setup and per-run feature flags</strong></summary>
+
 For scripts or unattended setup, add `--no-prompt` to use saved defaults (core
-only on a fresh install). Existing `--with-semantic` and `--with-graphify` flags
-still add a feature for one run without opening the menu. Add `--personalize`
-when you only want the working-style questions. Changing defaults does not
-uninstall an already installed model or disable Graphify in existing projects.
+only on a fresh install). `--with-semantic` and `--with-graphify` add a feature
+for one run without opening the menu. Add `--personalize` when you only want
+the working-style questions. Changing defaults does not uninstall an already
+installed model or disable Graphify in existing projects.
 
 Or specify the project explicitly:
 
@@ -129,6 +153,8 @@ Graphify as well. [Setup, privacy and limits →](docs/semantic-memory.md)
 Run the same command for each new project **on this device**. Source-only graphs
 are rebuilt locally; preferences and handoffs stay in the same vault. Memory-only
 setup still works without Graphify. [Supported files, limits and recovery →](docs/code-graphs.md)
+
+</details>
 
 <details>
 <summary><strong>PowerShell and Linux commands</strong></summary>
