@@ -1,9 +1,11 @@
 """Durable session checkpoints. SQLite is authoritative; Markdown is a recoverable view."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import sqlite3
+import stat
 import subprocess
 import time
 import uuid
@@ -50,31 +52,79 @@ def project_path(root, project):
 
 def git_snapshot(root, project, baseline=None, workspace=None):
     """Metadata only: no diffs, file contents, remote URLs, or command arguments."""
-    path = Path(workspace) if workspace else project_path(root, project)
+    mapped = project_path(root, project)
+    path = Path(workspace).resolve() if workspace else mapped
     if not path or not path.is_dir():
-        return {'available': False, 'reason': 'Project is not mapped on this device'}
-    def git(*args):
-        output = subprocess.run(['git', '-C', str(path), *args], capture_output=True, timeout=10, check=True)
-        return output.stdout.decode('utf-8', errors='replace').rstrip('\r\n')
+        return {'available': False, 'reason': 'Project or saved worktree is not available on this device'}
+    def git(at, *args):
+        return subprocess.run(['git', '-C', str(at), *args], capture_output=True, timeout=10,
+                              check=True).stdout.decode('utf-8', errors='replace').rstrip('\r\n')
+    def common_dir(at):
+        value = Path(git(at, 'rev-parse', '--git-common-dir'))
+        return (value if value.is_absolute() else at / value).resolve()
     try:
-        if Path(git('rev-parse', '--show-toplevel')).resolve() != path.resolve():
-            return {'available': False, 'reason': 'Mapped directory is not the Git root'}
-        head = git('rev-parse', '--verify', 'HEAD')
-        branch = git('rev-parse', '--abbrev-ref', 'HEAD')
+        if not mapped or not mapped.is_dir() or Path(git(mapped, 'rev-parse', '--show-toplevel')).resolve() != mapped:
+            return {'available': False, 'reason': 'Mapped project is not the Git root'}
+        if common_dir(mapped) != common_dir(path):
+            return {'available': False, 'reason': 'Saved worktree is not linked to the mapped project'}
+        if Path(git(path, 'rev-parse', '--show-toplevel')).resolve() != path:
+            return {'available': False, 'reason': 'Workspace is not the Git root'}
+        git_dir = Path(git(path, 'rev-parse', '--absolute-git-dir')).resolve()
+        head = git(path, 'rev-parse', '--verify', 'HEAD')
+        branch = git(path, 'rev-parse', '--abbrev-ref', 'HEAD')
         # --no-renames keeps one path per status record. All paths are repository-relative.
-        records = git('status', '--porcelain=v1', '-z', '--untracked-files=normal', '--no-renames').split('\0')
+        records = git(path, 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames').split('\0')
         dirty = [entry[3:] for entry in records if entry]
         changed = []
         if baseline and baseline.get('head') and baseline['head'] != head:
-            changed = git('diff', '--name-only', '-z', baseline['head'], head, '--').split('\0')
+            changed = git(path, 'diff', '--name-only', '-z', baseline['head'], head, '--').split('\0')
+        # Hash only dirty paths, never the whole repository or its contents in the handoff.
+        # Include staged blob IDs so replacing a staged version also changes the fingerprint.
+        digest = hashlib.sha256()
+        digest.update(git(path, 'diff', '--cached', '--raw', '-z', '--no-renames', '--').encode('utf-8'))
+        complete = True
+        for entry in sorted(record for record in records if record):
+            digest.update(entry.encode('utf-8', errors='replace') + b'\0')
+            file = path / entry[3:]
+            if file.is_symlink():
+                digest.update(b'L' + os.readlink(file).encode('utf-8', errors='replace'))
+            elif file.is_file():
+                digest.update(b'F' + str(stat.S_IMODE(file.stat().st_mode)).encode('ascii') + b'\0')
+                with file.open('rb') as stream:
+                    for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                        digest.update(chunk)
+            elif not file.exists():
+                digest.update(b'D')
+            else:
+                complete = False  # A dirty submodule/directory cannot be content-fingerprinted here.
+                digest.update(b'O')
         observed = sorted(set(p for p in dirty + changed if p))
-        return {'available': True, 'head': head, 'branch': branch,
+        return {'available': True, 'head': head, 'branch': branch, 'workspace': str(path),
+                'git_dir': str(git_dir),
+                'fingerprint': digest.hexdigest(), 'fingerprint_complete': complete,
                 'dirty_files': [p for p in dirty[:20] if len(p) <= 400],
                 'observed_files': [p for p in observed[:20] if len(p) <= 400],
                 'files_omitted': max(0, len(observed) - 20) + sum(len(p) > 400 for p in observed[:20]),
                 'attribution': 'Git observations may include pre-existing or concurrent edits; not proof of authorship or correctness.'}
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError, ValueError):
         return {'available': False, 'reason': 'Git snapshot unavailable (missing Git, unborn HEAD, or command failure)'}
+
+
+def git_drift(root, project, saved):
+    """Compare a saved checkpoint against the same live repository/worktree."""
+    if (not saved.get('available') or not saved.get('fingerprint') or not saved.get('workspace')
+            or not saved.get('fingerprint_complete')):
+        return {'status': 'unverifiable', 'reason': 'Checkpoint has no comparable Git fingerprint'}
+    current = git_snapshot(root, project, workspace=saved['workspace'])
+    if not current.get('available'):
+        return {'status': 'unverifiable', 'reason': current.get('reason', 'Worktree unavailable')}
+    if not current.get('fingerprint_complete'):
+        return {'status': 'unverifiable', 'reason': 'Current worktree contains dirty paths that cannot be fingerprinted'}
+    changed = [key for key in ('head', 'branch', 'git_dir', 'fingerprint') if saved.get(key) != current.get(key)]
+    if changed:
+        return {'status': 'changed', 'reason': 'Git state changed since checkpoint: ' + ', '.join(changed),
+                'current_head': current['head'], 'current_branch': current['branch']}
+    return {'status': 'match', 'reason': 'Saved checkpoint matches the current Git state'}
 
 
 def validate_id(ident):
@@ -116,9 +166,15 @@ def checkpoint(hive, ident, checkpoint, expected_revision, workspace=None):
     digest = hashlib.sha256(encoded.encode()).hexdigest()
     with hive.connect() as c:
         session = c.execute('SELECT * FROM sessions WHERE id=?', (ident,)).fetchone()
+        last_snapshot = c.execute('''SELECT snapshot FROM checkpoints WHERE session=?
+            ORDER BY revision DESC LIMIT 1''', (ident,)).fetchone() if session else None
     if session is None:
         raise ValueError('Session not found')
-    snapshot = git_snapshot(hive.root, session['project'], json.loads(session['baseline']), workspace)
+    previous_workspace = json.loads(last_snapshot['snapshot']).get('workspace') if last_snapshot else None
+    target_workspace = workspace or previous_workspace
+    snapshot = git_snapshot(hive.root, session['project'], json.loads(session['baseline']), target_workspace)
+    if workspace and not snapshot.get('available'):
+        raise ValueError(snapshot.get('reason', 'Workspace Git snapshot unavailable'))
     with hive.connect(write=True) as c:
         current = c.execute('SELECT revision FROM sessions WHERE id=?', (ident,)).fetchone()[0]
         last = c.execute('SELECT digest FROM checkpoints WHERE session=? AND revision=?', (ident, current)).fetchone()[0]
@@ -146,9 +202,11 @@ def resume(hive, project, ident=''):
             raise ValueError('Session not found in this project')
         return {'session': None, 'note': 'No structured checkpoint yet. Existing Markdown handoffs remain searchable.'}
     payload = json.loads(row['payload'])
+    saved = json.loads(row['snapshot'])
     return {'session': {'id': row['id'], 'project': row['project'], 'agent': row['agent'], 'goal': row['goal'],
             'status': payload['status'], 'revision': row['revision'], 'created': row['created'],
-            'checkpoint_at': row['checkpoint_at'], 'checkpoint': payload, 'git': json.loads(row['snapshot']),
+            'checkpoint_at': row['checkpoint_at'], 'checkpoint': payload, 'git': saved,
+            'git_drift': git_drift(hive.root, project, saved),
             'path': f"03-Projects/{row['project']}/Sessions/{row['id']}.md"},
             'evidence_policy': 'Verification is agent-reported. Git changes and successful process exit are not proof of completion.'}
 

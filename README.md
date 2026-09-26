@@ -246,7 +246,9 @@ and `00-System/Working-Style.md` to define how your agents should work.
 Session checkpoints retain completed work, reported checks, blockers and next
 steps in SQLite, with a Markdown view under each project's `Sessions/` directory.
 Concurrent updates require revision checks, and a CLI exit alone is never treated
-as verified completion. [Session behavior and limitations](docs/context-and-sessions.md).
+as verified completion. Resume compares each saved Git/worktree fingerprint with
+the live state and flags changed or unverifiable handoffs for inspection.
+[Session behavior and limitations](docs/context-and-sessions.md).
 
 Saved Markdown revisions can be inspected, diffed and restored with a current-revision
 check. A read-only audit flags mechanical issues; an opt-in search finds older task,

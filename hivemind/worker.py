@@ -124,6 +124,14 @@ async def run_task(root, api, ident, config, dry_run=False):
     try:
         session = (await api.call("session_start", project=spec["project"], agent=agent, goal=spec["title"]))['session']
         workspace = prepare_workspace(root, spec, ident, config)
+        if spec['access'] == 'write':
+            # Save the execution worktree before launching the agent. Even if it exits
+            # abruptly, resume can detect edits made after this baseline.
+            session = (await api.call('session_checkpoint', ident=session['id'],
+                checkpoint={'summary': 'Isolated worktree prepared; agent result not verified yet.',
+                            'status': 'active', 'next_steps': ['Inspect the worktree before trusting this handoff.'],
+                            'source': 'worker'}, expected_revision=session['revision'],
+                workspace=str(workspace)))['session']
         context = await api.call("hive_context", agent=agent, project=spec["project"], query=spec["title"])
         prompt = ("Execute this authorized HiveMind task. The local worker owns its lease; do not claim or finish it via MCP. "
                   "Do not delegate or launch additional agents. Do not commit, push, merge or deploy unless the task explicitly asks. "
@@ -163,7 +171,8 @@ async def run_task(root, api, ident, config, dry_run=False):
         result = parse_result(agent, run_dir)
         result.artifacts = (result.artifacts + [str(workspace), str(run_dir)])[:20]
         finished = await api.call("task_finish", ident=ident, token=token, result=result.model_dump())
-        finished["session_checkpoint"] = await checkpoint_result(api, session, result, ident, run_dir)
+        finished["session_checkpoint"] = await checkpoint_result(api, session, result, ident, run_dir,
+                                                                  workspace if spec['access'] == 'write' else None)
         return finished
     except BaseException as exc:
         if process:
@@ -176,11 +185,12 @@ async def run_task(root, api, ident, config, dry_run=False):
             # If authority is offline, lease expiry blocks the task. Never retry a mutation blindly.
             atomic_write(run_dir / "unreported-result.json", failure.model_dump_json(indent=2))
         if session:
-            await checkpoint_result(api, session, failure, ident, run_dir)
+            await checkpoint_result(api, session, failure, ident, run_dir,
+                                    locals().get('workspace') if spec['access'] == 'write' else None)
         raise
 
 
-async def checkpoint_result(api, session, result, task, run_dir):
+async def checkpoint_result(api, session, result, task, run_dir, workspace=None):
     """Persist validated worker reports without an extra model call or raw transcript capture."""
     from .context import excerpt
     reference = f'See task_get {task} for the full report and artifacts.'
@@ -193,7 +203,10 @@ async def checkpoint_result(api, session, result, task, run_dir):
                'next_steps': items(result.unresolved) or [reference], 'source': 'worker'}
     try:
         latest = (await api.call('session_resume', project=session['project'], ident=session['id']))['session']
-        return await api.call('session_checkpoint', ident=session['id'], checkpoint=payload, expected_revision=latest['revision'])
+        args = {'ident': session['id'], 'checkpoint': payload, 'expected_revision': latest['revision']}
+        if workspace:
+            args['workspace'] = str(workspace)
+        return await api.call('session_checkpoint', **args)
     except Exception as exc:
         atomic_write(run_dir / 'unsaved-checkpoint.json', json.dumps({'session': session['id'], 'checkpoint': payload}, indent=2))
         return {'saved': False, 'error': str(exc)[:300], 'recovery': str(run_dir / 'unsaved-checkpoint.json')}

@@ -214,6 +214,48 @@ else:
             self.assertFalse(result["will_launch_model"])
             self.assertEqual(local.hive.get_task(task["id"])["status"], "pending")
 
+    async def test_write_worker_checkpoints_its_worktree_before_and_after_execution(self):
+        # The fixture mutates an isolated Git worktree; no paid agent is launched.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / 'repo'
+            repo.mkdir()
+            subprocess.run(['git', 'init', str(repo)], check=True, capture_output=True)
+            (repo / 'app.txt').write_text('original')
+            subprocess.run(['git', '-C', str(repo), 'add', 'app.txt'], check=True, capture_output=True)
+            subprocess.run(['git', '-C', str(repo), '-c', 'user.name=Test',
+                            '-c', 'user.email=test@example.invalid', 'commit', '-m', 'Initial'],
+                           check=True, capture_output=True)
+            config = {'projects': {'app': str(repo)}}
+            (root / 'hive.local.json').write_text(json.dumps(config))
+            local = Local(root)
+            task = local.hive.create_task(spec(project='app', access='write', agent='codex'))
+            fixture = root / 'worker_fixture.py'
+            fixture.write_text('''import json, sys
+from pathlib import Path
+Path('app.txt').write_text('worker edit')
+Path(sys.argv[1]).write_text(json.dumps({'status':'done', 'summary':'Edited app',
+    'artifacts':[], 'verification':['Fixture checked'], 'unresolved':[]}))
+''')
+            def fake_command(name, prompt, run_dir, access, settings):
+                return [sys.executable, str(fixture), str(run_dir / 'result.json')], b''
+            with patch('hivemind.worker.command', side_effect=fake_command):
+                result = await run_task(root, local, task['id'], config)
+            self.assertEqual(result['status'], 'done')
+            session = local.hive.session_resume('app')['session']
+            worktree = root / '.worktrees' / task['id']
+            self.assertEqual(Path(session['git']['workspace']), worktree)
+            self.assertEqual(session['git_drift']['status'], 'match')
+            self.assertEqual((repo / 'app.txt').read_text(), 'original')
+            (worktree / 'app.txt').write_text('later edit')
+            self.assertEqual(local.hive.session_resume('app')['session']['git_drift']['status'], 'changed')
+            with local.hive.connect() as c:
+                snapshots = [json.loads(row[0]) for row in c.execute(
+                    'SELECT snapshot FROM checkpoints WHERE session=? ORDER BY revision', (session['id'],))]
+            self.assertEqual(Path(snapshots[1]['workspace']), worktree)
+            self.assertEqual(Path(snapshots[2]['workspace']), worktree)
+            self.assertNotEqual(snapshots[1]['fingerprint'], snapshots[2]['fingerprint'])
+
     async def test_failed_dispatch_blocks_with_handoff(self):
         with tempfile.TemporaryDirectory() as tmp:
             local = Local(tmp)

@@ -66,6 +66,81 @@ class SessionTests(unittest.TestCase):
         self.assertTrue(retry['markdown_saved'])
 
 
+class GitDriftTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.repo = self.root / 'repo'
+        self.repo.mkdir()
+        self.git('init', str(self.repo), in_repo=False)
+        (self.repo / 'app.py').write_text('before\n')
+        self.git('add', 'app.py')
+        self.git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'Initial')
+        (self.root / 'hive.local.json').write_text(json.dumps({'projects': {'app': str(self.repo)}}))
+        self.hive = Hive(self.root)
+
+    def git(self, *args, in_repo=True):
+        command = ['git'] + (['-C', str(self.repo)] if in_repo else []) + list(args)
+        return subprocess.run(command, check=True, capture_output=True, text=True).stdout.strip()
+
+    def start_and_checkpoint(self, workspace=None):
+        session = self.hive.session_start('app', 'codex', 'Fix app')['session']
+        self.hive.session_checkpoint(session['id'], {'summary': 'Saved work state.'}, 0, workspace=workspace)
+        return session['id']
+
+    def test_same_dirty_path_changed_contents_is_stale(self):
+        (self.repo / 'app.py').write_text('first edit\n')
+        ident = self.start_and_checkpoint()
+        self.assertEqual(self.hive.session_resume('app', ident)['session']['git_drift']['status'], 'match')
+        (self.repo / 'app.py').write_text('second edit\n')
+        packet = self.hive.session_resume('app', ident)['session']
+        self.assertEqual(packet['git_drift']['status'], 'changed')
+        self.assertIn('fingerprint', packet['git_drift']['reason'])
+        brief = self.hive.context(project='app', query='Fix app', budget_tokens=1800)
+        self.assertEqual(brief['session']['git_drift'], 'changed')
+
+    def test_staged_and_untracked_content_changes_are_stale(self):
+        (self.repo / 'app.py').write_text('staged first\n')
+        self.git('add', 'app.py')
+        (self.repo / 'new.txt').write_text('untracked first\n')
+        ident = self.start_and_checkpoint()
+        (self.repo / 'new.txt').write_text('untracked second\n')
+        self.assertEqual(self.hive.session_resume('app', ident)['session']['git_drift']['status'], 'changed')
+        (self.repo / 'new.txt').write_text('untracked first\n')
+        (self.repo / 'app.py').write_text('staged second\n')
+        self.git('add', 'app.py')
+        self.assertEqual(self.hive.session_resume('app', ident)['session']['git_drift']['status'], 'changed')
+
+    def test_head_change_and_missing_worktree_are_not_trusted(self):
+        ident = self.start_and_checkpoint()
+        (self.repo / 'app.py').write_text('committed update\n')
+        self.git('add', 'app.py')
+        self.git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'Update')
+        packet = self.hive.session_resume('app', ident)['session']
+        self.assertEqual(packet['git_drift']['status'], 'changed')
+        self.assertIn('head', packet['git_drift']['reason'])
+
+        worktree = self.root / 'worktree'
+        self.git('worktree', 'add', '-b', 'test-branch', str(worktree), 'HEAD')
+        ident = self.start_and_checkpoint(worktree)
+        self.assertEqual(self.hive.session_resume('app', ident)['session']['git_drift']['status'], 'match')
+        inherited = self.hive.session_checkpoint(ident, {'summary': 'Another milestone.'}, 1)
+        self.assertEqual(Path(inherited['session']['git']['workspace']), worktree)
+        (worktree / 'app.py').write_text('unfinished worker edit\n')
+        self.assertEqual(self.hive.session_resume('app', ident)['session']['git_drift']['status'], 'changed')
+        self.git('worktree', 'remove', '--force', str(worktree))
+        self.assertEqual(self.hive.session_resume('app', ident)['session']['git_drift']['status'], 'unverifiable')
+
+    def test_foreign_workspace_rejected(self):
+        other = self.root / 'other'
+        other.mkdir()
+        self.git('init', str(other), in_repo=False)
+        ident = self.hive.session_start('app', 'codex', 'Fix app')['session']['id']
+        with self.assertRaisesRegex(ValueError, 'linked to the mapped project'):
+            self.hive.session_checkpoint(ident, {'summary': 'Wrong repo'}, 0, workspace=other)
+
+
 class WrapperTests(unittest.IsolatedAsyncioTestCase):
     async def test_wrapper_preserves_agent_checkpoint_and_reports_failed_exit_save(self):
         with tempfile.TemporaryDirectory() as tmp:

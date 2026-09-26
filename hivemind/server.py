@@ -64,13 +64,14 @@ def build_server(root, remote_url="", remote_token="", hostname=""):
         return await call("session_start", project=project, agent=agent, goal=goal, session_id=session_id)
 
     @mcp.tool()
-    async def session_checkpoint(ident: str, checkpoint: Checkpoint, expected_revision: int) -> str:
-        """Save a structured milestone/handoff with revision checks. Completed requires work + evidence. Preserve earlier fields; use session_resume before updating. No task lease changes."""
-        return await call("session_checkpoint", ident=ident, checkpoint=checkpoint.model_dump(), expected_revision=expected_revision)
+    async def session_checkpoint(ident: str, checkpoint: Checkpoint, expected_revision: int, workspace: str = "") -> str:
+        """Save a structured milestone/handoff with revision checks and a Git fingerprint. Optional workspace must be a worktree of the mapped project. Completed requires work + evidence."""
+        return await call("session_checkpoint", ident=ident, checkpoint=checkpoint.model_dump(),
+                          expected_revision=expected_revision, workspace=workspace or None)
 
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))
     async def session_resume(project: str, ident: str = "") -> str:
-        """Read a project's latest session or a specific session ID, including reported checks, blockers, next steps and observed Git state. Does not execute work."""
+        """Read a project's latest session and compare its saved Git fingerprint with the live worktree. A changed or unverifiable handoff needs inspection. Does not execute work."""
         return await call("session_resume", project=project, ident=ident)
 
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))

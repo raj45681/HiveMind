@@ -42,6 +42,8 @@ Before substantial work:
 - Read the latest checkpoint with `session_resume` when continuing work. Start a new
   session for your task with project=`hivemind`, your agent name and a concise goal;
   use the previous handoff as context, not as another agent's identity.
+  Check `git_drift`: if changed or unverifiable, inspect the live repository and
+  worktree before relying on the saved handoff. It is a warning, not proof of a fix.
   If HIVE_SESSION_ID is set by a CLI wrapper, resume that ID instead of starting another.
   Skip session management when a Hive worker supplies the task; the worker owns it.
 

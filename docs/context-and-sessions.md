@@ -49,12 +49,27 @@ checkpoint records:
 - Agent-reported changed files and verification evidence.
 - Blockers and concrete next steps.
 - Observed Git branch, HEAD and file paths when the project is mapped locally.
+- A fingerprint of staged changes and dirty tracked/untracked file contents in the
+  execution worktree. The fingerprint is metadata; file contents are not saved.
 
 Git metadata does not include diffs, file contents, remote URLs or agent arguments.
 Observed files can include pre-existing or concurrent changes; they are not proof
 of authorship. A missing Git installation or repository is recorded explicitly.
-The snapshot describes the authority's mapped repository; a worker's separate
-worktree remains referenced in its task artifacts, not in that repository snapshot.
+Interactive sessions observe the mapped repository. Queued write workers capture
+their separate execution worktree before launch and at later checkpoints.
+This lets a resume notice partial edits even when a worker exits before a final
+handoff. Fingerprints cover Git-visible changes, not ignored files or external
+state such as databases, running services or deployments.
+
+`session_resume` returns `session.git_drift.status`: `match`, `changed`, or
+`unverifiable`. It compares the saved branch, HEAD and fingerprint against the
+same live worktree. `hive_context` includes the compact status in its session
+packet. A changed or unverifiable result means inspect the live repository before
+trusting the saved handoff; it does not discard history or claim a fix. Older
+checkpoints without a fingerprint, removed worktrees, unavailable Git, and dirty
+submodules are reported as unverifiable rather than silently treated as current.
+The check is local and requires no model call. It is a point-in-time observation,
+not a lock against another process editing the repo immediately afterward.
 
 Agents use `session_start`, `session_checkpoint`, and `session_resume`. A checkpoint
 requires the last revision; stale writes fail instead of overwriting newer work.
