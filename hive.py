@@ -22,6 +22,7 @@ def parser():
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("init", help="Initialize local coordinator and note index")
     sub.add_parser("doctor", help="Check local tools and coordinator access without model usage")
+    sub.add_parser("verify", help="Run a disposable end-to-end MCP memory and handoff check without model usage")
     sub.add_parser("status", help="List tasks from the selected coordinator")
     sub.add_parser("index", help="Refresh the local Markdown search index")
     sub.add_parser("semantic-setup", help="Install the optional local semantic memory model")
@@ -168,6 +169,9 @@ def save_config(root, config):
 
 async def execute(args):
     root = args.root.resolve()
+    if args.cmd == "verify":
+        from hivemind.verify import verify
+        return await verify(ROOT)
     url, token, config = connection(root)
     if args.cmd in {"history", "diff", "restore", "memory-audit", "handoff-search",
                     "candidate-inbox", "candidate-approve", "candidate-reject", "procedure-report",
@@ -410,6 +414,8 @@ def main():
     else:
         print(json.dumps(result, indent=2, ensure_ascii=False))
     if args.cmd == "session-run" and result.get("exit_code"):
+        sys.exit(1)
+    if args.cmd == "verify" and not result["ok"]:
         sys.exit(1)
 
 

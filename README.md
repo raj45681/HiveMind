@@ -178,6 +178,27 @@ learning at milestones, and leave a handoff. You do not need to repeat
 access to the tools. HiveMind does not silently capture every chat, guarantee
 model compliance, or automatically launch another agent.
 
+### Verify the handoff path
+
+From the HiveMind folder, run this after setup or an update:
+
+```cmd
+.venv\Scripts\python.exe hive.py verify
+```
+
+`verify` creates a disposable vault and Git project. It starts two separate MCP
+server processes, saves memory and a Codex checkpoint in the first, then checks
+that a fresh Grok context retrieves the right project note and handoff within a
+1,000 estimated-token budget. It also checks safe memory retry, project
+isolation, and Git drift detection. The command returns a nonzero exit code on
+failure and uses **no paid agent/model calls**. Your real vault and projects are
+untouched. On Linux use `.venv/bin/python`.
+
+This proves the local protocol path, not that a vendor client has loaded its
+registration or will follow the project instructions. The onboarding report
+checks registration; restart the client and ask it to call `hive_context` to
+check its live session.
+
 ## How it works
 
 ```mermaid
@@ -400,7 +421,8 @@ review; nothing automatically merges, pushes, or deploys code.
 
 Tests cover memory conflicts, ownership and leases, worker result handling, MCP
 interoperability, project-rule preservation, offline routing, backup restoration,
-and private-vault separation. They use temporary fixtures and no paid model calls.
+private-vault separation, and a two-process handoff acceptance check. They use
+temporary fixtures and no paid model calls.
 
 The protocol suite verifies tool behavior, not a model's instruction compliance.
 Real vendor inference and physical Linux behavior need separate smoke tests.
