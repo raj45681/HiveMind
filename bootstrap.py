@@ -16,11 +16,14 @@ def main():
     parser.add_argument("--name", default="")
     parser.add_argument("--skip-register", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--personalize", action="store_true", help="Optionally save two explicit cross-project working preferences")
     parser.add_argument("--with-graphify", action="store_true", help="Install and enable optional local code graphs (Python 3.12+)")
     parser.add_argument("--with-semantic", action="store_true", help="Install local semantic memory search (one-time model download)")
     args = parser.parse_args()
     if sys.version_info < (3, 11):
         raise ValueError("Install Python 3.11 or newer, then run this command again")
+    if args.personalize and not args.dry_run and not sys.stdin.isatty():
+        raise ValueError("--personalize needs an interactive terminal; rerun without this flag in automation")
     target = ROOT / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     if not target.exists():
         if args.dry_run:
@@ -41,35 +44,77 @@ def main():
         # An inherited cloud URL cannot silently turn a fresh local bundle into a hosted client.
         with config.open("x", encoding="utf-8") as f:
             json.dump({"offline": True}, f)
-        subprocess.run([str(target), str(ROOT / "hive.py"), "init"], check=True)
+        subprocess.run([str(target), str(ROOT / "hive.py"), "init"], check=True, capture_output=True)
     command = [str(target), str(ROOT / "hive.py"), "attach", str(args.project.resolve())]
     if args.name:
         command += ["--name", args.name]
-    if args.skip_register:
-        command.append("--skip-register")
+    # The direct attach command stays strict. Onboarding enrolls first so one broken
+    # client registration cannot prevent the other clients or project setup.
+    command.append("--skip-register")
     if args.dry_run:
         command.append("--dry-run")
-    subprocess.run(command, check=True)
-    if args.with_graphify:
-        if args.dry_run:
+    attached = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if attached.returncode:
+        raise ValueError(attached.stderr.strip() or attached.stdout.strip() or "project enrollment failed")
+    enrollment = json.loads(attached.stdout)
+    project_id = enrollment["project"]
+    if args.dry_run:
+        print(f"HiveMind preview for {project_id}: {', '.join(enrollment['files_to_change']) or 'no project file changes'}")
+        if args.with_graphify:
             print("Preview: would install isolated Graphify and build a local source-only index.")
-        else:
-            print("Preparing optional Graphify code indexing; first setup downloads an isolated environment...", flush=True)
-            manifest = args.project.resolve() / ".hivemind/project.json"
-            project_id = json.loads(manifest.read_text(encoding="utf-8"))["project"]
-            subprocess.run([str(target), str(ROOT / "hive.py"), "code-setup", project_id], check=True)
-    if args.with_semantic:
-        if args.dry_run:
+        if args.with_semantic:
             print("Preview: would install the local semantic model; Markdown stays authoritative.")
+        print("No agent registration, MCP probe, profile prompt or model call was run.")
+        return 0
+    if args.with_graphify:
+        print("Preparing optional Graphify code indexing; first setup downloads an isolated environment...", flush=True)
+        subprocess.run([str(target), str(ROOT / "hive.py"), "code-setup", project_id], check=True)
+    if args.with_semantic:
+        print("Preparing local semantic recall; first setup downloads an isolated model...", flush=True)
+        subprocess.run([str(target), str(ROOT / "hive.py"), "semantic-setup"], check=True)
+    if args.skip_register:
+        agents = {name: {"status": "skipped", "detail": "requested with --skip-register"}
+                  for name in ("codex", "grok", "antigravity")}
+    else:
+        registration = subprocess.run([str(target), str(ROOT / "scripts/register_agents.py"), "--json"],
+                                      capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
+        if not registration.stdout.strip():
+            raise ValueError("Agent registration did not return a report: " + registration.stderr.strip())
+        agents = json.loads(registration.stdout)
+    try:
+        probe = subprocess.run([str(target), "-m", "hivemind.onboarding", str(ROOT), project_id],
+                               cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=45)
+    except subprocess.TimeoutExpired:
+        bridge = {"status": "needs-action", "detail": "MCP probe timed out after 45 seconds"}
+    else:
+        if probe.returncode:
+            bridge = {"status": "needs-action", "detail": "MCP probe failed: " + (probe.stderr.strip() or probe.stdout.strip())[-300:]}
         else:
-            print("Preparing local semantic recall; first setup downloads an isolated model...", flush=True)
-            subprocess.run([str(target), str(ROOT / "hive.py"), "semantic-setup"], check=True)
-    print(f"Shared HiveMind folder: {ROOT}\nObsidian vault: {ROOT / 'vault'}")
+            count = json.loads(probe.stdout)["tool_count"]
+            bridge = {"status": "ready", "detail": f"hive_context succeeded; {count} MCP tools visible"}
+    if args.personalize:
+        from hivemind.onboarding import personalize
+        personalize(ROOT)
+    print(f"\nHiveMind onboarding - {project_id}")
+    print(f"  Project: ready ({len(enrollment['changed_files'])} file changes)")
+    for name, result in agents.items():
+        print(f"  {name}: {result['status']} ({result['detail']})")
+    if not args.skip_register and all(result["status"] == "skipped" for result in agents.values()):
+        print("  Agents: needs-action (install at least one supported CLI, then rerun setup)")
+    print(f"  MCP bridge: {bridge['status']} ({bridge['detail']})")
+    print(f"  Vault: {ROOT / 'vault'}")
+    if not args.skip_register:
+        print("  Next: restart active agent sessions in this project; accept normal trust/MCP prompts.")
+    if ((not args.skip_register and all(result["status"] == "skipped" for result in agents.values()))
+            or any(result["status"] == "needs-action" for result in agents.values()) or bridge["status"] != "ready"):
+        print("  Rerun the same command after resolving the needs-action items; enrollment is safe to repeat.")
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
     try:
-        main()
+        sys.exit(main())
     except (ValueError, OSError, subprocess.CalledProcessError) as exc:
         print("HiveMind setup: " + str(exc), file=sys.stderr)
         sys.exit(1)

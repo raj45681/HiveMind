@@ -67,7 +67,7 @@ and device credentials remain local and are excluded from Git.
 Open **CMD in the project you want to work on**, then run:
 
 ```cmd
-git clone https://github.com/raj45681/HiveMind.git "%USERPROFILE%\HiveMind" && "%USERPROFILE%\HiveMind\hivemind.cmd"
+(if not exist "%USERPROFILE%\HiveMind\hivemind.cmd" call git clone https://github.com/raj45681/HiveMind.git "%USERPROFILE%\HiveMind") & call "%USERPROFILE%\HiveMind\hivemind.cmd"
 ```
 
 Already have HiveMind installed? From any project's CMD prompt:
@@ -75,6 +75,18 @@ Already have HiveMind installed? From any project's CMD prompt:
 ```cmd
 "%USERPROFILE%\HiveMind\hivemind.cmd"
 ```
+
+Both commands are safe to rerun. Onboarding enrolls the project, registers each
+installed CLI independently, then opens the local MCP bridge and calls
+`hive_context` without starting an AI session. The final report shows each agent
+as **ready**, **skipped**, or **needs-action**, plus the bridge check and next step.
+A CLI marked ready has its HiveMind entry registered and listed; restart an active
+agent session to load it. A skipped CLI can be installed later, then the same
+setup command will register it. If one CLI fails, the others are still attempted.
+
+To save two short, explicitly stated preferences that follow you across projects,
+add `--personalize` in an interactive terminal. The normal command asks no
+questions and makes no model calls.
 
 Or specify the project explicitly:
 
@@ -138,6 +150,8 @@ Antigravity CLIs. It adds a managed workflow to `AGENTS.md`, handles an existing
 Existing instructions are preserved and backed up. Reruns update the managed
 section without duplicating it. Accept normal project-trust and MCP prompts;
 Grok must trust the project before loading its rules. Missing CLIs are skipped.
+The bridge probe verifies the server itself; it cannot verify that an already-open
+client session has reloaded its MCP configuration.
 
 ### 3 · Work as usual
 
