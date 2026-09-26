@@ -27,8 +27,17 @@ class SessionTests(unittest.TestCase):
         first = self.hive.session_checkpoint(self.session['id'], packet, 0)
         self.assertTrue(first['saved'])
         self.assertTrue(first['markdown_saved'])
+        target = self.hive.note_path(first['session']['path'])
+        initial_mtime = target.stat().st_mtime_ns
+        with self.hive.connect() as c:
+            initial_rowid = c.execute('SELECT rowid FROM notes WHERE path=?',
+                                      (first['session']['path'],)).fetchone()[0]
         again = Hive(self.tmp.name).session_checkpoint(self.session['id'], packet, 0)
         self.assertEqual(again['session']['revision'], 1)
+        self.assertEqual(target.stat().st_mtime_ns, initial_mtime)
+        with self.hive.connect() as c:
+            self.assertEqual(c.execute('SELECT rowid FROM notes WHERE path=?',
+                                       (first['session']['path'],)).fetchone()[0], initial_rowid)
         self.assertEqual(Hive(self.tmp.name).session_resume('app')['session']['checkpoint']['next_steps'], ['Review'])
         with self.assertRaisesRegex(ValueError, 'Checkpoint changed'):
             self.hive.session_checkpoint(self.session['id'], {'summary':'Overwrite'}, 0)

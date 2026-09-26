@@ -13,8 +13,12 @@ from .sessions import Checkpoint
 from .transport import backend, connection
 
 READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
-ADDITIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
-MUTATING = ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False)
+ADDITIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                           idempotentHint=False, openWorldHint=False)
+MUTATING = ToolAnnotations(readOnlyHint=False, destructiveHint=True,
+                           idempotentHint=False, openWorldHint=False)
+RETRY_IDEMPOTENT = ToolAnnotations(readOnlyHint=False, destructiveHint=True,
+                                   idempotentHint=True, openWorldHint=False)
 
 INSTRUCTIONS = (
     "HiveMind shares Obsidian memory and task state. Call hive_context once with project and optional budget_tokens, "
@@ -28,6 +32,8 @@ INSTRUCTIONS = (
 
 
 def build_server(root, remote_url="", remote_token="", hostname=""):
+    from .cloud import cloud_settings
+
     hosts = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
     origins = ["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"]
     if hostname:
@@ -36,6 +42,10 @@ def build_server(root, remote_url="", remote_token="", hostname=""):
     mcp = FastMCP("HiveMind", instructions=INSTRUCTIONS, host="127.0.0.1", port=8787,
                   stateless_http=True, json_response=True,
                   transport_security=TransportSecuritySettings(allowed_hosts=hosts, allowed_origins=origins))
+    # A forwarding bridge cannot assert the retry behavior of an older remote
+    # authority. Legacy cloud memory also has its own outbox and API semantics.
+    local_retry = RETRY_IDEMPOTENT if not remote_url else MUTATING
+    memory_retry = local_retry if not cloud_settings(root)[0] else MUTATING
 
     async def call(tool, **kwargs):
         async with backend(root, remote_url, remote_token) as api:
@@ -67,9 +77,9 @@ def build_server(root, remote_url="", remote_token="", hostname=""):
         """Start a durable session with a Git baseline. Goal <=400 chars. Reuse an existing wrapper session; optional stable SESSION-<16 hex> ID makes start retries idempotent."""
         return await call("session_start", project=project, agent=agent, goal=goal, session_id=session_id)
 
-    @mcp.tool(annotations=MUTATING)
+    @mcp.tool(annotations=local_retry)
     async def session_checkpoint(ident: str, checkpoint: Checkpoint, expected_revision: int, workspace: str = "") -> str:
-        """Save a structured milestone/handoff with revision checks and a Git fingerprint. Optional workspace must be a worktree of the mapped project. Completed requires work + evidence."""
+        """Save a structured milestone/handoff with revision checks and a Git fingerprint. An identical retry against the immediately previous revision has no further effect. Optional workspace must be a worktree of the mapped project. Completed requires work + evidence."""
         return await call("session_checkpoint", ident=ident, checkpoint=checkpoint.model_dump(),
                           expected_revision=expected_revision, workspace=workspace or None)
 
@@ -85,9 +95,9 @@ def build_server(root, remote_url="", remote_token="", hostname=""):
         return await call("note_read", path=path, offset=offset, limit=limit,
                           revision=revision, include_history=include_history)
 
-    @mcp.tool(annotations=MUTATING)
+    @mcp.tool(annotations=memory_retry)
     async def memory_write(path: str, content: str, expected_revision: str = "new") -> str:
-        """Create/update memory, decisions or project notes. Include source/date. Existing notes need their read revision."""
+        """Create/update memory, decisions or project notes. Include source/date. Existing notes need their read revision; repeating identical content is a no-op."""
         return await call("memory_write", path=path, content=content, expected_revision=expected_revision)
 
     @mcp.tool(annotations=ADDITIVE)
@@ -95,7 +105,7 @@ def build_server(root, remote_url="", remote_token="", hostname=""):
         """Queue an authorized task with explicit acceptance criteria, dependencies and optional agent/machine."""
         return await call("task_create", spec=spec.model_dump())
 
-    @mcp.tool(annotations=MUTATING)
+    @mcp.tool(annotations=memory_retry)
     async def memory_learn(kind: Literal["preference", "solution", "decision", "procedure"], key: str, summary: str,
                            source: str, project: str = "", evidence: str = "",
                            basis: Literal["user-stated", "verified-result", "observation"] = "observation",
@@ -104,6 +114,7 @@ def build_server(root, remote_url="", remote_token="", hostname=""):
         """Save learning at milestones. Only user-stated preferences enter the shared profile; inferred tastes stay candidates.
         Solutions and procedures require verified-result basis and evidence. Procedures also need a trigger and 1-8 steps.
         Use a stable lowercase key; to revise, read the note then supply its revision.
+        An identical retry cannot add another revision, but can return a revision conflict; read the note to confirm.
         """
         return await call("memory_learn", kind=kind, key=key, summary=summary, source=source, project=project,
                           evidence=evidence, basis=basis, expected_revision=expected_revision,
@@ -129,9 +140,9 @@ def build_server(root, remote_url="", remote_token="", hostname=""):
         """Renew your task lease for 120 seconds; bookkeeping should be done by a local worker."""
         return await call("task_heartbeat", ident=ident, token=token)
 
-    @mcp.tool(annotations=MUTATING)
+    @mcp.tool(annotations=local_retry)
     async def task_finish(ident: str, token: str, result: TaskResult) -> str:
-        """Finish an owned task with a short handoff; done requires verification evidence."""
+        """Finish an owned task with a short handoff; done requires verification evidence. An identical retry cannot finish it twice, but may return an ownership error; use task_get to confirm."""
         return await call("task_finish", ident=ident, token=token, result=result.model_dump())
 
     @mcp.tool(annotations=ADDITIVE)

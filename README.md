@@ -212,6 +212,19 @@ checkpoints, memory updates and task-state changes are marked as mutations.
 non-destructive write even though it does not edit source files. These are client
 hints, not an access-control boundary; the server still validates every write.
 
+The local authority's `tools/list` response explicitly classifies retries for every write:
+
+| `idempotentHint` | Tools | Meaning |
+| :--- | :--- | :--- |
+| `true` | `session_checkpoint`, `memory_write`, `memory_learn`, `task_finish` | Repeating the same arguments cannot add another persisted change. `memory_learn` or `task_finish` may still return a conflict or ownership error; read the saved note or task to confirm the first result. |
+| `false` | `session_start`, `task_create`, `task_claim`, `task_heartbeat`, `message_send`, optional `code_query` | A repeat may create another record, claim different work, extend a lease, or refresh an index. `session_start` is retry-safe only when the caller supplies a stable `session_id`. |
+
+Read-only tools leave `idempotentHint` unset because the hint only applies to
+environment-changing tools. An idempotency hint describes repeated effects, not
+an identical response or a guarantee that the first call succeeded. A forwarding
+bridge conservatively marks writes non-idempotent because it cannot verify an
+older authority's behavior; legacy cloud-memory writes are treated the same way.
+
 Task and messaging tools support explicit coordination; their presence does not
 launch other agents. All 16 core tools are currently exposed. A smaller tool profile
 is a proposed optimization, not an available setting yet.

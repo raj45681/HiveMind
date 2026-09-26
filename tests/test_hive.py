@@ -65,6 +65,20 @@ class StoreTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.hive.finish(task["id"], claim["claim_token"], {"status": "done", "summary": "No evidence"})
 
+    def test_identical_task_finish_cannot_add_a_second_result(self):
+        task = self.hive.create_task(spec())
+        claim = self.hive.claim("worker", "codex", task["id"])
+        result = {"status": "done", "summary": "Reviewed", "verification": ["Checked"]}
+        self.hive.finish(task["id"], claim["claim_token"], result)
+        with self.hive.connect() as c:
+            events = c.execute("SELECT count(*) FROM events WHERE task=?", (task["id"],)).fetchone()[0]
+        with self.assertRaisesRegex(ValueError, "not owned"):
+            self.hive.finish(task["id"], claim["claim_token"], result)
+        with self.hive.connect() as c:
+            self.assertEqual(c.execute("SELECT count(*) FROM events WHERE task=?",
+                                       (task["id"],)).fetchone()[0], events)
+        self.assertEqual(self.hive.get_task(task["id"])["result"], result | {"artifacts": [], "unresolved": []})
+
     def test_memory_compare_and_swap_and_windows_newlines(self):
         path = "01-Memory/test.md"
         self.hive.write_memory(path, "# Test\n\nFirst")
@@ -75,6 +89,21 @@ class StoreTests(unittest.TestCase):
         self.hive.note_path(path).write_bytes(b"# Windows\r\n\r\nCRLF")
         note = self.hive.read_note(path)
         self.hive.write_memory(path, "# Normalized\n", note["revision"])
+
+    def test_identical_memory_write_does_not_rewrite_or_reindex(self):
+        path = "01-Memory/retry.md"
+        content = "# Retry\n\nSame content\n"
+        first = self.hive.write_memory(path, content)
+        target = self.hive.note_path(path)
+        initial_mtime = target.stat().st_mtime_ns
+        with self.hive.connect() as c:
+            initial_rowid = c.execute("SELECT rowid FROM notes WHERE path=?", (path,)).fetchone()[0]
+        repeated = self.hive.write_memory(path, content, "new")
+        self.assertEqual(repeated, first)
+        self.assertEqual(target.stat().st_mtime_ns, initial_mtime)
+        with self.hive.connect() as c:
+            self.assertEqual(c.execute("SELECT rowid FROM notes WHERE path=?", (path,)).fetchone()[0],
+                             initial_rowid)
 
     def test_note_history_diff_and_checked_restore(self):
         path = "01-Memory/history.md"

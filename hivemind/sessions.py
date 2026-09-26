@@ -251,8 +251,13 @@ def persist_view(hive, result):
             text += '\n## Observed Git state\n\n```json\n' + json.dumps(snapshot, indent=2, ensure_ascii=False) + '\n```\n'
             text += '\nGenerated view. Use session_checkpoint to update; SQLite retains every checkpoint revision.\n'
             path = hive.note_path(session['path'])
-            atomic_write(path, text)
-            hive._index_note(c, path)
+            encoded = text.encode('utf-8')
+            unchanged = path.exists() and path.read_bytes() == encoded
+            if not unchanged:
+                atomic_write(path, text)
+            indexed = c.execute('SELECT revision FROM notes WHERE path=?', (session['path'],)).fetchone()
+            if not unchanged or indexed is None or indexed['revision'] != hashlib.sha256(encoded).hexdigest():
+                hive._index_note(c, path)
         return {**result, 'saved': True, 'markdown_saved': True}
     except (OSError, ValueError, sqlite3.Error) as exc:
         # The database checkpoint is already committed and remains resumable/backed up.

@@ -193,13 +193,21 @@ class Hive:
         with self.connect(write=True) as c:
             previous = target.read_bytes() if target.exists() else None
             current = hashlib.sha256(previous).hexdigest() if previous is not None else "new"
-            if current != expected_revision and current != hashlib.sha256(content.encode()).hexdigest():
+            incoming = content.encode("utf-8")
+            incoming_revision = hashlib.sha256(incoming).hexdigest()
+            if current != expected_revision and current != incoming_revision:
                 raise ValueError("Note changed; read the current revision before updating")
+            if previous == incoming:
+                indexed = c.execute("SELECT revision FROM notes WHERE path=?",
+                                    (target.relative_to(self.vault).as_posix(),)).fetchone()
+                if indexed is None or indexed["revision"] != incoming_revision:
+                    self._index_note(c, target)
+                return {"path": path, "revision": incoming_revision}
             if previous is not None:
                 self._remember_version(c, target.relative_to(self.vault).as_posix(), previous)
             atomic_write(target, content)
             self._index_note(c, target)
-        return {"path": path, "revision": hashlib.sha256(content.encode()).hexdigest()}
+        return {"path": path, "revision": incoming_revision}
 
     def _index_note(self, c, path):
         data = path.read_bytes()

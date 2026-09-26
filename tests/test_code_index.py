@@ -137,6 +137,7 @@ class CodeMCPTests(unittest.IsolatedAsyncioTestCase):
                     self.assertIn("code_query", names)
                     self.assertFalse(tools["code_query"].annotations.readOnlyHint)
                     self.assertFalse(tools["code_query"].annotations.destructiveHint)
+                    self.assertFalse(tools["code_query"].annotations.idempotentHint)
                     self.assertFalse(tools["code_query"].annotations.openWorldHint)
                     result = await client.call_tool("code_query", {"project": "app", "query": "login"})
                     self.assertFalse(result.isError)

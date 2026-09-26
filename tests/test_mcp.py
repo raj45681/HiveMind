@@ -14,13 +14,28 @@ import httpx
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from hivemind.server import server_token
+from hivemind.server import build_server, server_token
 from hivemind.transport import Local, backend
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class MCPTests(unittest.IsolatedAsyncioTestCase):
+    async def test_proxy_and_legacy_cloud_advertise_conservative_retries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            forwarded = {tool.name: tool for tool in await build_server(
+                tmp, remote_url="https://example.invalid/mcp").list_tools()}
+            for name in ("session_checkpoint", "memory_write", "memory_learn", "task_finish"):
+                self.assertFalse(forwarded[name].annotations.idempotentHint)
+
+            (Path(tmp) / "hive.local.json").write_text(json.dumps({
+                "memory_url": "https://example.invalid"}), encoding="utf-8")
+            cloud = {tool.name: tool for tool in await build_server(tmp).list_tools()}
+            self.assertFalse(cloud["memory_write"].annotations.idempotentHint)
+            self.assertFalse(cloud["memory_learn"].annotations.idempotentHint)
+            self.assertTrue(cloud["session_checkpoint"].annotations.idempotentHint)
+            self.assertTrue(cloud["task_finish"].annotations.idempotentHint)
+
     async def test_git_backed_session_does_not_hold_stdio_requests(self):
         with tempfile.TemporaryDirectory() as tmp:
             root, repo = Path(tmp) / "authority", Path(tmp) / "repo"
@@ -67,6 +82,7 @@ class MCPTests(unittest.IsolatedAsyncioTestCase):
                     additive = {"session_start", "task_create", "message_send"}
                     mutating = {"session_checkpoint", "memory_write", "memory_learn",
                                 "task_claim", "task_heartbeat", "task_finish"}
+                    idempotent = {"session_checkpoint", "memory_write", "memory_learn", "task_finish"}
                     self.assertEqual(set(tools), read_only | additive | mutating)
                     for name, tool in tools.items():
                         with self.subTest(tool=name):
@@ -75,20 +91,29 @@ class MCPTests(unittest.IsolatedAsyncioTestCase):
                             self.assertEqual(tool.annotations.readOnlyHint, name in read_only)
                             if name in additive | mutating:
                                 self.assertEqual(tool.annotations.destructiveHint, name in mutating)
+                                self.assertEqual(tool.annotations.idempotentHint, name in idempotent)
+                            else:
+                                self.assertIsNone(tool.annotations.idempotentHint)
                     result = await client.call_tool("memory_write", {"path": "01-Memory/shared.md", "content": "# Shared\nMCP interoperability verified"})
                     self.assertFalse(result.isError)
                     first_revision = json.loads(result.content[0].text)["revision"]
                     updated = await client.call_tool("memory_write", {"path": "01-Memory/shared.md",
                         "content": "# Shared\nMCP interoperability verified again", "expected_revision": first_revision})
                     self.assertFalse(updated.isError)
-                    procedure = await client.call_tool("memory_learn", {
+                    procedure_args = {
                         "kind": "procedure", "key": "repair-login-cache", "summary": "Repair stale login cache",
                         "source": "verified test", "project": "app", "basis": "verified-result",
                         "trigger": "Login cache serves an old token", "steps": ["Clear the expired token", "Retry login"],
-                        "evidence": "Login integration test passed"})
+                        "evidence": "Login integration test passed"}
+                    procedure = await client.call_tool("memory_learn", procedure_args)
                     self.assertFalse(procedure.isError)
                     procedure_path = json.loads(procedure.content[0].text)["path"]
                     self.assertEqual(procedure_path, "03-Projects/app/Procedures/repair-login-cache.md")
+                    before_retry = await client.call_tool("note_read", {"path": procedure_path})
+                    await client.call_tool("memory_learn", procedure_args)
+                    after_retry = await client.call_tool("note_read", {"path": procedure_path})
+                    self.assertEqual(json.loads(after_retry.content[0].text)["revision"],
+                                     json.loads(before_retry.content[0].text)["revision"])
                     found = await client.call_tool("memory_search", {"query": "expired token", "project": "app"})
                     self.assertIn(procedure_path, found.content[0].text)
                     await client.call_tool("message_send", {"sender": "codex", "recipient": "grok", "body": "Read shared memory"})
