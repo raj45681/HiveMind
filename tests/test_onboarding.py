@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import re
 import shutil
@@ -8,8 +9,9 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from types import SimpleNamespace
 
-from hivemind.onboarding import personalize, smoke_test
+from hivemind.onboarding import choose_setup, personalize, setup_extras, smoke_test
 from hivemind.store import Hive
 from scripts.register_agents import register_agents
 
@@ -35,11 +37,76 @@ class OnboardingTests(unittest.TestCase):
                 self.skipTest("Local virtualenv symlinks are unavailable")
             for attempt in range(2):
                 result = subprocess.run([sys.executable, str(bundle / "bootstrap.py"), str(project), "--skip-register"],
-                                        capture_output=True, text=True, timeout=60)
+                                        stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertIn("MCP bridge: ready", result.stdout)
                 self.assertIn(f"Project: ready ({0 if attempt else 5} file changes)", result.stdout)
             self.assertEqual((project / "AGENTS.md").read_text(encoding="utf-8").count("<!-- HIVEMIND:BEGIN -->"), 1)
+            config = json.loads((bundle / "hive.local.json").read_text(encoding="utf-8"))
+            self.assertEqual(config["onboarding_defaults"], {"graphify": False, "semantic": False})
+
+    def test_first_run_menu_offers_core_semantic_graphify_both_and_all(self):
+        args = SimpleNamespace(with_graphify=False, with_semantic=False, personalize=False,
+                               configure=False, no_prompt=False, dry_run=False)
+        expected = {
+            "0": (False, False, False),
+            "1": (False, True, False),
+            "2": (True, False, False),
+            "3": (True, True, False),
+            "4": (True, True, True),
+        }
+        for choice, (graphify, semantic, profile) in expected.items():
+            with self.subTest(choice=choice):
+                output = io.StringIO()
+                result = choose_setup(args, {}, True, interactive=True,
+                                      input_fn=lambda _: choice, output=output)
+                self.assertEqual((result["graphify"], result["semantic"], result["personalize"]),
+                                 (graphify, semantic, profile))
+                self.assertTrue(result["persist"])
+                self.assertIn("All of the above", output.getvalue())
+
+    def test_saved_defaults_and_reconfigure_without_surprise_prompts(self):
+        args = SimpleNamespace(with_graphify=False, with_semantic=False, personalize=False,
+                               configure=False, no_prompt=False, dry_run=False)
+        saved = {"onboarding_defaults": {"graphify": True, "semantic": True}}
+        result = choose_setup(args, saved, False, interactive=True,
+                              input_fn=lambda _: self.fail("Rerun should not prompt"))
+        self.assertTrue(result["graphify"] and result["semantic"])
+        self.assertFalse(result["menu_shown"])
+        args.configure = True
+        changed = choose_setup(args, saved, False, interactive=True,
+                               input_fn=lambda _: "0", output=io.StringIO())
+        self.assertFalse(changed["graphify"] or changed["semantic"])
+        self.assertTrue(changed["persist"])
+        with self.assertRaisesRegex(ValueError, "interactive terminal"):
+            choose_setup(args, saved, False, interactive=False)
+
+    def test_noninteractive_first_run_and_explicit_flags(self):
+        args = SimpleNamespace(with_graphify=False, with_semantic=False, personalize=False,
+                               configure=False, no_prompt=False, dry_run=False)
+        result = choose_setup(args, {}, True, interactive=False,
+                              input_fn=lambda _: self.fail("Unattended setup should not prompt"))
+        self.assertFalse(result["graphify"] or result["semantic"])
+        args.with_semantic = True
+        selected = choose_setup(args, {}, True, interactive=True,
+                                input_fn=lambda _: self.fail("Explicit flags should not prompt"))
+        self.assertTrue(selected["semantic"])
+        self.assertFalse(selected["graphify"])
+
+    def test_optional_features_report_graphify_fallback_even_with_zero_exit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "hive.local.json").write_text('{"offline":true}', encoding="utf-8")
+            results = iter([
+                subprocess.CompletedProcess([], 0, '{"installed":true}', ""),
+                subprocess.CompletedProcess([], 0, '{"status":"unavailable","reason":"Graphify dependency unavailable"}', ""),
+            ])
+            with patch("hivemind.semantic.ready", return_value=False), \
+                    patch("hivemind.onboarding.subprocess.run", side_effect=lambda *a, **k: next(results)):
+                extras = setup_extras(root, sys.executable, "app", {"semantic": True, "graphify": True})
+            self.assertEqual(extras["Semantic"]["status"], "ready")
+            self.assertEqual(extras["Graphify"]["status"], "needs-action")
+            self.assertIn("dependency unavailable", extras["Graphify"]["detail"])
 
     @unittest.skipUnless(os.name == "nt", "CMD quick start")
     def test_documented_one_liner_handles_fresh_and_existing_install(self):
@@ -101,6 +168,9 @@ class OnboardingTests(unittest.TestCase):
             self.assertIn("Be concise and direct", first["text"])
             self.assertIn("Basis: user-stated", first["text"])
             personalize(tmp, lambda _: "", io.StringIO())
+            def closed_input(_):
+                raise EOFError
+            personalize(tmp, closed_input, io.StringIO())
             self.assertEqual(hive.read_note(path)["revision"], first["revision"])
 
 

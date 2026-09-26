@@ -76,6 +76,13 @@ Already have HiveMind installed? From any project's CMD prompt:
 "%USERPROFILE%\HiveMind\hivemind.cmd"
 ```
 
+On a fresh interactive install, HiveMind asks which local features to enable:
+**core only**, **semantic recall**, **Graphify**, **both**, or **all** (both plus
+two short working-style questions). Semantic recall downloads a local model;
+Graphify needs Python 3.12+ and downloads an isolated dependency. The choice is
+saved on this device. Semantic recall then serves every enrolled project, and a
+Graphify choice is applied to each new project. No paid agent session is launched.
+
 Both commands are safe to rerun. Onboarding enrolls the project, registers each
 installed CLI independently, then opens the local MCP bridge and calls
 `hive_context` without starting an AI session. The final report shows each agent
@@ -84,9 +91,17 @@ A CLI marked ready has its HiveMind entry registered and listed; restart an acti
 agent session to load it. A skipped CLI can be installed later, then the same
 setup command will register it. If one CLI fails, the others are still attempted.
 
-To save two short, explicitly stated preferences that follow you across projects,
-add `--personalize` in an interactive terminal. The normal command asks no
-questions and makes no model calls.
+To change your saved feature choice later, run this from the project you are setting up:
+
+```cmd
+"%USERPROFILE%\HiveMind\hivemind.cmd" --configure
+```
+
+For scripts or unattended setup, add `--no-prompt` to use saved defaults (core
+only on a fresh install). Existing `--with-semantic` and `--with-graphify` flags
+still add a feature for one run without opening the menu. Add `--personalize`
+when you only want the working-style questions. Changing defaults does not
+uninstall an already installed model or disable Graphify in existing projects.
 
 Or specify the project explicitly:
 
@@ -244,7 +259,7 @@ Task and messaging tools support explicit coordination; their presence does not
 launch other agents. All 16 core tools are currently exposed. A smaller tool profile
 is a proposed optimization, not an available setting yet.
 
-**When Graphify runs:** setup with `--with-graphify` builds the initial index.
+**When Graphify runs:** selecting it in setup or using `--with-graphify` builds the initial index.
 Subsequent `code_query` calls check for source changes and refresh as needed.
 It does not run continuously or after every message. Agents are instructed to use
 it for code relationships; preferences and handoffs use the memory/session tools.
@@ -344,7 +359,8 @@ Run these from your HiveMind folder. On Linux substitute `.venv/bin/python`.
 .venv\Scripts\python.exe hive.py handoff-search "authentication" --project myapp
 ```
 
-The installer supports `--dry-run`, `--name myapp`, and `--skip-register`.
+The installer also supports `--dry-run`, `--name myapp`, `--skip-register`,
+`--configure`, and `--no-prompt`.
 
 For an explicitly launched interactive session with automatic exit capture:
 

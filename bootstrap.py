@@ -16,14 +16,21 @@ def main():
     parser.add_argument("--name", default="")
     parser.add_argument("--skip-register", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--configure", action="store_true", help="Open the optional-feature menu again on this device")
+    parser.add_argument("--no-prompt", action="store_true", help="Use saved defaults, or core-only on a fresh noninteractive setup")
     parser.add_argument("--personalize", action="store_true", help="Optionally save two explicit cross-project working preferences")
     parser.add_argument("--with-graphify", action="store_true", help="Install and enable optional local code graphs (Python 3.12+)")
     parser.add_argument("--with-semantic", action="store_true", help="Install local semantic memory search (one-time model download)")
     args = parser.parse_args()
     if sys.version_info < (3, 11):
         raise ValueError("Install Python 3.11 or newer, then run this command again")
-    if args.personalize and not args.dry_run and not sys.stdin.isatty():
-        raise ValueError("--personalize needs an interactive terminal; rerun without this flag in automation")
+    config = ROOT / "hive.local.json"
+    first_setup = not config.exists()
+    existing = json.loads(config.read_text(encoding="utf-8-sig")) if not first_setup else {}
+    from hivemind.onboarding import choose_setup
+    options = choose_setup(args, existing, first_setup)
+    if options["personalize"] and not args.dry_run and not sys.stdin.isatty():
+        raise ValueError("Personalization needs an interactive terminal; rerun without --personalize in automation")
     target = ROOT / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     if not target.exists():
         if args.dry_run:
@@ -36,7 +43,6 @@ def main():
             raise ValueError("Dependencies are missing; run setup once before previewing")
         print("Installing the local bridge dependencies (one-time internet access)...", flush=True)
         subprocess.run([str(target), "-m", "pip", "install", "-r", str(ROOT / "requirements.txt")], check=True)
-    config = ROOT / "hive.local.json"
     if not args.dry_run:
         from hivemind.seed import seed_vault
         seed_vault(ROOT)
@@ -45,6 +51,11 @@ def main():
         with config.open("x", encoding="utf-8") as f:
             json.dump({"offline": True}, f)
         subprocess.run([str(target), str(ROOT / "hive.py"), "init"], check=True, capture_output=True)
+    if options["persist"] and not args.dry_run:
+        from hivemind.store import atomic_write
+        latest = json.loads(config.read_text(encoding="utf-8-sig"))
+        latest["onboarding_defaults"] = {key: options[key] for key in ("graphify", "semantic")}
+        atomic_write(config, json.dumps(latest, indent=2) + "\n")
     command = [str(target), str(ROOT / "hive.py"), "attach", str(args.project.resolve())]
     if args.name:
         command += ["--name", args.name]
@@ -60,18 +71,14 @@ def main():
     project_id = enrollment["project"]
     if args.dry_run:
         print(f"HiveMind preview for {project_id}: {', '.join(enrollment['files_to_change']) or 'no project file changes'}")
-        if args.with_graphify:
+        if options["graphify"]:
             print("Preview: would install isolated Graphify and build a local source-only index.")
-        if args.with_semantic:
+        if options["semantic"]:
             print("Preview: would install the local semantic model; Markdown stays authoritative.")
         print("No agent registration, MCP probe, profile prompt or model call was run.")
         return 0
-    if args.with_graphify:
-        print("Preparing optional Graphify code indexing; first setup downloads an isolated environment...", flush=True)
-        subprocess.run([str(target), str(ROOT / "hive.py"), "code-setup", project_id], check=True)
-    if args.with_semantic:
-        print("Preparing local semantic recall; first setup downloads an isolated model...", flush=True)
-        subprocess.run([str(target), str(ROOT / "hive.py"), "semantic-setup"], check=True)
+    from hivemind.onboarding import setup_extras
+    extras = setup_extras(ROOT, target, project_id, options)
     if args.skip_register:
         agents = {name: {"status": "skipped", "detail": "requested with --skip-register"}
                   for name in ("codex", "grok", "antigravity")}
@@ -92,12 +99,14 @@ def main():
         else:
             count = json.loads(probe.stdout)["tool_count"]
             bridge = {"status": "ready", "detail": f"hive_context succeeded; {count} MCP tools visible"}
-    if args.personalize:
+    if options["personalize"]:
         from hivemind.onboarding import personalize
         personalize(ROOT)
     print(f"\nHiveMind onboarding - {project_id}")
     print(f"  Project: ready ({len(enrollment['changed_files'])} file changes)")
     for name, result in agents.items():
+        print(f"  {name}: {result['status']} ({result['detail']})")
+    for name, result in extras.items():
         print(f"  {name}: {result['status']} ({result['detail']})")
     if not args.skip_register and all(result["status"] == "skipped" for result in agents.values()):
         print("  Agents: needs-action (install at least one supported CLI, then rerun setup)")
@@ -106,7 +115,8 @@ def main():
     if not args.skip_register:
         print("  Next: restart active agent sessions in this project; accept normal trust/MCP prompts.")
     if ((not args.skip_register and all(result["status"] == "skipped" for result in agents.values()))
-            or any(result["status"] == "needs-action" for result in agents.values()) or bridge["status"] != "ready"):
+            or any(result["status"] == "needs-action" for result in agents.values())
+            or any(result["status"] == "needs-action" for result in extras.values()) or bridge["status"] != "ready"):
         print("  Rerun the same command after resolving the needs-action items; enrollment is safe to repeat.")
         return 1
     return 0
