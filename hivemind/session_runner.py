@@ -12,10 +12,13 @@ from .store import atomic_write
 
 async def run_session(root, api, project, agent, agent_args, config):
     from .worker import stop_process
+    from .context import validate_agent
+    validate_agent(agent)
     workspace = project_path(root, project)
     if not workspace or not workspace.is_dir():
         raise ValueError('Enroll this project before starting a wrapped session')
-    exe = config.get('agents', {}).get(agent) or shutil.which({'codex': 'codex', 'grok': 'grok', 'antigravity': 'agy'}[agent])
+    executable = {'codex': 'codex', 'grok': 'grok', 'antigravity': 'agy'}.get(agent, agent)
+    exe = config.get('agents', {}).get(agent) or shutil.which(executable)
     if not exe:
         raise ValueError(f'{agent} is not installed or not on PATH')
     ident = 'SESSION-' + uuid.uuid4().hex[:16]

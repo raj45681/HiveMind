@@ -61,7 +61,7 @@ def build_server(root, remote_url="", remote_token="", hostname=""):
             return compact(await asyncio.to_thread(operate, root, project, query, budget_tokens))
 
     @mcp.tool(annotations=READ_ONLY)
-    async def hive_context(agent: Agent = "codex", project: str = "", query: str = "", budget_tokens: int | None = None) -> str:
+    async def hive_context(agent: Agent = "generic", project: str = "", query: str = "", budget_tokens: int | None = None) -> str:
         """Budgeted brief with complete excerpts, project-scoped matches and latest session. Budget 512-8192 estimated tokens; default 1800. Read originals before editing."""
         return await call("hive_context", agent=agent, project=project, query=query, budget_tokens=budget_tokens)
 

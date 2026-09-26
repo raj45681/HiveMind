@@ -36,7 +36,8 @@ This project is enrolled in HiveMind as `{name}`. Apply this workflow during nor
 work without waiting for the user to say 'use HiveMind'. Keep existing project rules.
 
 Before substantial work:
-- Call `hive_context` with project=`{name}` and a short task-topic query once per
+- Call `hive_context` with project=`{name}`, your stable lowercase harness ID as
+  agent, and a short task-topic query once per
   substantial task. It pulls shared style, confirmed preferences, project state and
   relevant shared solutions and the latest session. Default budget is 1800 estimated
   tokens; request budget_tokens=1000 for a smaller brief. Excerpts are incomplete:

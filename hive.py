@@ -38,14 +38,14 @@ def parser():
     s.add_argument("--budget", type=int, default=1000)
     s = sub.add_parser("context", help="Read a budgeted, project-aware brief without inference")
     s.add_argument("project")
-    s.add_argument("--agent", choices=("codex", "grok", "antigravity"), default="codex")
+    s.add_argument("--agent", default="generic", help="Lowercase harness ID, e.g. codex or cursor")
     s.add_argument("--query", default="")
     s.add_argument("--budget", type=int)
     s = sub.add_parser("context-budget", help="Set the default estimated-token budget (512-8192)")
     s.add_argument("tokens", type=int)
     s = sub.add_parser("session-start", help="Start a durable session without launching an agent")
     s.add_argument("project")
-    s.add_argument("--agent", choices=("codex", "grok", "antigravity"), default="codex")
+    s.add_argument("--agent", default="codex", help="Lowercase harness ID, e.g. codex or cursor")
     s.add_argument("--goal", required=True)
     s = sub.add_parser("checkpoint", help="Save structured JSON using the last session revision")
     s.add_argument("session")
@@ -56,8 +56,10 @@ def parser():
     s.add_argument("--session", default="")
     s = sub.add_parser("session-run", help="Explicitly launch an interactive agent with durable exit capture; uses its account")
     s.add_argument("project")
-    s.add_argument("agent", choices=("codex", "grok", "antigravity"))
+    s.add_argument("agent", help="Lowercase harness ID; pass its CLI arguments after --")
     s.add_argument("agent_args", nargs=argparse.REMAINDER)
+    s = sub.add_parser("client-info", help="Show generic stdio MCP connection details for an enrolled project")
+    s.add_argument("project")
     sub.add_parser("offline", help="Use only this folder; ignore hosted URLs and preserve existing remote data")
     s = sub.add_parser("backup", help="Create a portable local bundle with Markdown and a consistent task database snapshot")
     s.add_argument("file", type=Path)
@@ -173,6 +175,23 @@ async def execute(args):
         from hivemind.verify import verify
         return await verify(ROOT)
     url, token, config = connection(root)
+    if args.cmd == "client-info":
+        from hivemind.context import validate_project
+        from hivemind.sessions import project_path
+        validate_project(args.project, required=True)
+        project = project_path(root, args.project)
+        if not project or not project.is_dir():
+            raise ValueError("Enroll or map this project on this device first")
+        workflow = project / "AGENTS.md"
+        if not workflow.is_file():
+            raise ValueError("Project has no AGENTS.md workflow; enroll it with hive.py attach first")
+        venv_python = root / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+        python = venv_python if venv_python.is_file() else Path(sys.executable)
+        return {"project": args.project, "agent_id_example": "cursor",
+                "mcp": {"name": "hivemind", "transport": "stdio", "command": str(python),
+                        "args": [str(root / "hive.py"), "serve"]},
+                "workflow_file": str(workflow),
+                "note": "Configure this stdio server in your client's MCP settings and make its project instructions load AGENTS.md. Restart the client, then call hive_context with this project ID. Client-specific trust and MCP prompts still apply."}
     if args.cmd in {"history", "diff", "restore", "memory-audit", "handoff-search",
                     "candidate-inbox", "candidate-approve", "candidate-reject", "procedure-report",
                     "procedure-archive", "procedure-unarchive", "procedure-used", "review-checkpoint",

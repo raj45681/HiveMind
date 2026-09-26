@@ -194,6 +194,12 @@ Grok must trust the project before loading its rules. Missing CLIs are skipped.
 The bridge probe verifies the server itself; it cannot verify that an already-open
 client session has reloaded its MCP configuration.
 
+Other stdio MCP clients can join the same memory and task state. Run
+`hive.py client-info PROJECT` for their local connection command, then load the
+project's `AGENTS.md` workflow in that client. Context and session tools accept a
+stable client ID such as `cursor`; automatic registration and headless execution
+remain available only for the three verified CLIs. [Other harness guide →](docs/other-harnesses.md)
+
 ### 3 · Work as usual
 
 Agents are instructed to retrieve context before substantial work, save verified

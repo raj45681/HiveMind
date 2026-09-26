@@ -6,12 +6,23 @@ import re
 import time
 
 AGENTS = {"codex": "Codex", "grok": "Grok", "antigravity": "Antigravity"}
+AGENT_ID = re.compile(r"[a-z][a-z0-9_-]{0,63}\Z")
 STOPWORDS = frozenset("a an and are as at be been by can did do does for from had has have how i if in is it my of on or our the their there this to was were what when where who why with would you your".split())
 
 
 def validate_project(project, required=False):
     if (required or project) and not re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", project):
         raise ValueError("Use a project ID with 1-64 letters, digits, underscores or hyphens")
+
+
+def validate_agent(agent):
+    if not isinstance(agent, str) or not AGENT_ID.fullmatch(agent):
+        raise ValueError("Use an agent ID with 1-64 lowercase letters, digits, underscores or hyphens, starting with a letter")
+    return agent
+
+
+def agent_note(agent):
+    return f"05-Agents/{AGENTS.get(agent, agent)}.md"
 
 
 def size(value):
@@ -117,11 +128,10 @@ def search(hive, query, limit=5, archive=False, project=""):
     return [candidates[path] for path in ordered[:max(1, min(limit, 5))]]
 
 
-def context(hive, agent="codex", project="", query="", budget_tokens=None):
+def context(hive, agent="generic", project="", query="", budget_tokens=None):
     from .store import utc
     validate_project(project)
-    if agent not in AGENTS:
-        raise ValueError("Unknown agent")
+    validate_agent(agent)
     config_path = hive.root / 'hive.local.json'
     config = json.loads(config_path.read_text(encoding='utf-8-sig')) if config_path.exists() else {}
     budget = config.get('context_budget_tokens', 1800) if budget_tokens is None else budget_tokens
@@ -202,7 +212,7 @@ def context(hive, agent="codex", project="", query="", budget_tokens=None):
     if query:
         instruction_paths = {f'00-System/{name}.md'.lower() for name in
                              ('Personality', 'Working-Style')}
-        instruction_paths.add(f'05-Agents/{AGENTS[agent]}.md'.lower())
+        instruction_paths.add(agent_note(agent).lower())
         state_path = f'03-Projects/{project}/Current-State.md'.lower() if project else ''
         project_preferences = f'03-Projects/{project}/Preferences/'.lower() if project else ''
         prioritized = 0
@@ -236,7 +246,7 @@ def context(hive, agent="codex", project="", query="", budget_tokens=None):
             add(section, path.relative_to(hive.vault).as_posix(), int(cap * .08))
     for name in ('Personality', 'Working-Style'):
         add('instructions', f'00-System/{name}.md', instruction_allowance)
-    add('instructions', f'05-Agents/{AGENTS[agent]}.md', instruction_allowance)
+    add('instructions', agent_note(agent), instruction_allowance)
     # Include the envelope itself in the estimate, including UTF-8 expansion and JSON escapes.
     for _ in range(3):
         result['budget']['estimated_tokens'] = math.ceil(size(result) / 4)

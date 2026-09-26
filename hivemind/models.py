@@ -1,7 +1,9 @@
-from typing import Literal
+from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
-Agent = Literal["codex", "grok", "antigravity"]
+# Identity is independent of the CLI used to execute a task. Keep it a short,
+# portable slug so any MCP-capable harness can share sessions and ownership.
+Agent = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")]
 
 
 class TaskSpec(BaseModel):

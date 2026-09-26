@@ -13,7 +13,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .context import AGENTS, validate_project
+from .context import validate_agent, validate_project
 
 Item = Annotated[str, Field(min_length=1, max_length=400)]
 
@@ -138,8 +138,9 @@ def validate_id(ident):
 def start(hive, project, agent, goal, session_id='', workspace=None):
     from .store import utc
     validate_project(project, required=True)
-    if agent not in AGENTS or not isinstance(goal, str) or not goal.strip() or len(goal) > 400:
-        raise ValueError('Use a supported agent and a goal of 1-400 characters')
+    validate_agent(agent)
+    if not isinstance(goal, str) or not goal.strip() or len(goal) > 400:
+        raise ValueError('Use a goal of 1-400 characters')
     ident = session_id or 'SESSION-' + uuid.uuid4().hex[:16]
     validate_id(ident)
     baseline = git_snapshot(hive.root, project, workspace=workspace)

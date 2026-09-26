@@ -282,7 +282,7 @@ class Hive:
         from .memory_ops import audit
         return audit(self, project, limit)
 
-    def context(self, agent="codex", project="", query="", budget_tokens=None):
+    def context(self, agent="generic", project="", query="", budget_tokens=None):
         from .context import context
         return context(self, agent, project, query, budget_tokens)
 
@@ -354,6 +354,8 @@ class Hive:
             self._event(c, row["id"], "lease_expired", "Inspect worker/worktree, then explicitly requeue")
 
     def claim(self, worker, agent, ident="", machine="", lease_seconds=120):
+        from .context import validate_agent
+        validate_agent(agent)
         if not re.fullmatch(r"[a-zA-Z0-9_.:@-]{1,100}", worker):
             raise ValueError("Worker ID must be 1–100 letters, digits, or ._:@-")
         lease_seconds = max(30, min(lease_seconds, 3600))

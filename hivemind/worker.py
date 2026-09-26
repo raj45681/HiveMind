@@ -111,6 +111,8 @@ async def run_task(root, api, ident, config, dry_run=False):
     if dry_run:
         return {"task": ident, "agent": agent, "spec": spec, "will_claim": False,
                 "will_launch_model": False, "note": "Run without --dry-run to execute one task using CLI account usage."}
+    if agent not in {"codex", "grok", "antigravity"}:
+        raise ValueError(f"No headless CLI adapter for {agent!r}; claim and execute this task interactively through MCP")
     machine = config.get("machine", socket.gethostname())
     worker_id = machine + ":" + agent + ":" + str(os.getpid())
     claimed = await api.call("task_claim", worker=worker_id, agent=agent, ident=ident, machine=machine)
