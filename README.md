@@ -16,9 +16,9 @@ Keep your preferences, project context, and hard-won solutions in one local fold
 
 ## Watch the film
 
-[![Introducing HiveMind: a cat carries useful context from one agent to the next](docs/assets/hivemind-launch-preview.gif)](docs/assets/introducing-hivemind-cat-courier.mp4)
+[![Introducing HiveMind: a cat sets out with a task](docs/assets/hivemind-launch-preview.gif)](docs/assets/introducing-hivemind-cat-courier.mp4)
 
-[Watch the full 29-second launch film (MP4)](docs/assets/introducing-hivemind-cat-courier.mp4).
+The scenes below play as short GIFs. [Watch the full 29-second film with sound (MP4)](docs/assets/introducing-hivemind-cat-courier.mp4).
 
 **One-command guided setup:** run HiveMind from your project's CMD prompt, pick
 the features you want, and start working. It enrolls the project, registers the
@@ -32,8 +32,12 @@ and retrieves what changed, why it changed, and what still needs attention. In
 your next project, confirmed preferences and relevant solutions are available
 again.
 
+![The cat starts a task with an agent, recording a decision, a verified check, and a checkpoint](docs/assets/hivemind-task.gif)
+
 HiveMind makes that handoff possible through **shared files and a local MCP server**.
 It gives each agent a small, relevant brief and a place to save what it learns.
+
+![The cat delivers a concise project-aware brief to the next agent](docs/assets/hivemind-handoff.gif)
 
 **HiveMind is single-device software.** One Markdown vault and one SQLite database
 serve the agents working on that computer. There is no device-sync requirement,
@@ -48,6 +52,8 @@ product.
 | Confirmed preferences across projects | Tasks with explicit ownership | Local SQLite task history |
 | Project decisions and verified solutions | Concise, persistent handoffs | Portable backups without hosting |
 | Saved note versions and local audits | Searchable task and session history | One SQLite authority on this device |
+
+![The cat gathers decisions, preferences, verified fixes, and handoffs into local Markdown memory](docs/assets/hivemind-remember.gif)
 
 **Now with budgeted briefs and resumable sessions:** select a context budget,
 retrieve complete project-aware excerpts, and carry structured checkpoints between
@@ -242,6 +248,8 @@ check its live session.
 
 ## How it works
 
+![The cat moves between owned tasks, checkpoints, and handoffs for three illustrative agents](docs/assets/hivemind-coordinate.gif)
+
 ```mermaid
 flowchart TB
     A1[Agent A] --> M
@@ -335,6 +343,8 @@ on the harness, tokenizer, caching and number of calls. Net savings from fewer f
 reads have not yet been measured in a paid-agent task.
 
 ## Your memory
+
+![The cat opens a local Hive folder containing editable notes and task history](docs/assets/hivemind-own.gif)
 
 ```text
 HiveMind/
@@ -492,6 +502,8 @@ their own licenses.
 ---
 
 <div align="center">
+
+![The cat waves beside the HiveMind mark and the One memory. Every agent. tagline](docs/assets/hivemind-closing.gif)
 
 **Keep the context. Carry the learning. Choose the agent.**
 
