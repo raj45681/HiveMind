@@ -1,18 +1,24 @@
 <div align="center">
 
-![HiveMind — One memory. Every agent.](docs/assets/hivemind-banner.svg)
+![HiveMind cat — One memory. Every agent.](docs/assets/hivemind-cat-banner.png)
 
-**Local shared memory for any stdio MCP agent.**<br>
-Automatic setup for Codex, Grok Build, and Antigravity; other clients connect manually.
+**Local shared memory and coordination for any stdio MCP agent.**<br>
+Guided setup registers recognized agent CLIs; other compatible clients connect manually.
 Keep your preferences, project context, and hard-won solutions in one local folder.
 
 ![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-8EF0CC?style=flat-square&labelColor=101B2C) ![Storage Markdown + SQLite](https://img.shields.io/badge/Storage-Markdown%20%2B%20SQLite-A59FFF?style=flat-square&labelColor=101B2C) ![Interface MCP](https://img.shields.io/badge/Interface-MCP-92B9FF?style=flat-square&labelColor=101B2C) ![Hosting Not required](https://img.shields.io/badge/Hosting-Not%20required-8EF0CC?style=flat-square&labelColor=101B2C) [![License MIT](https://img.shields.io/badge/License-MIT-C9D7E8?style=flat-square&labelColor=101B2C)](LICENSE)
 
-[Quick start](#quick-start) · [How it works](#how-it-works) · [Other harnesses](docs/other-harnesses.md) · [Your memory](#your-memory) · [Backups](#back-up--move-devices) · [Documentation](#documentation)
+[Watch the film](#watch-the-film) · [Quick start](#quick-start) · [How it works](#how-it-works) · [Connect an agent](docs/other-harnesses.md) · [Your memory](#your-memory) · [Backups](#back-up--move-devices) · [Documentation](#documentation)
 
 </div>
 
 ---
+
+## Watch the film
+
+[![Introducing HiveMind: a cat carries useful context from one agent to the next](docs/assets/hivemind-launch-preview.gif)](docs/assets/introducing-hivemind-cat-courier.mp4)
+
+[Watch the full 29-second launch film (MP4)](docs/assets/introducing-hivemind-cat-courier.mp4).
 
 **One-command guided setup:** run HiveMind from your project's CMD prompt, pick
 the features you want, and start working. It enrolls the project, registers the
@@ -21,9 +27,10 @@ is saved for the next project on this device. [Set up HiveMind →](#quick-start
 
 ## The idea
 
-You finish a task in Codex. Later, Grok opens the same project and retrieves what
-changed, why it changed, and what still needs attention. In your next project,
-confirmed preferences and relevant solutions are available again.
+You finish a task with one agent. Later, another agent opens the same project
+and retrieves what changed, why it changed, and what still needs attention. In
+your next project, confirmed preferences and relevant solutions are available
+again.
 
 HiveMind makes that handoff possible through **shared files and a local MCP server**.
 It gives each agent a small, relevant brief and a place to save what it learns.
@@ -63,8 +70,9 @@ existing memory tools; the vault remains plain Markdown.
 
 ## Quick start
 
-You need **Python 3.11+**, **Git**, and at least one supported agent CLI installed
-and signed in. The first setup downloads the Python dependencies. This source
+You need **Python 3.11+**, **Git**, and an agent that supports stdio MCP. Guided
+setup can register recognized installed CLIs; other clients use the manual
+connection details. The first setup downloads the Python dependencies. This source
 repository is public, so cloning it needs no GitHub sign-in. Your personal vault
 and device credentials remain local and are excluded from Git.
 
@@ -185,21 +193,21 @@ locally; the portable code has not yet been exercised on a physical Linux device
 
 ### 2 · Restart your agent session
 
-Setup registers the `hivemind` MCP bridge with installed Codex, Grok Build, and
-Antigravity CLIs. It adds a managed workflow to `AGENTS.md`, handles an existing
+Setup registers the `hivemind` MCP bridge with installed CLI adapters it recognizes.
+It adds a managed workflow to `AGENTS.md`, handles an existing
 `AGENTS.override.md`, and adds a pointer to an existing `GEMINI.md`.
 
 Existing instructions are preserved and backed up. Reruns update the managed
-section without duplicating it. Accept normal project-trust and MCP prompts;
-Grok must trust the project before loading its rules. Missing CLIs are skipped.
+section without duplicating it. Accept normal project-trust and MCP prompts from
+your client. Missing CLIs are skipped.
 The bridge probe verifies the server itself; it cannot verify that an already-open
 client session has reloaded its MCP configuration.
 
-Other stdio MCP clients can join the same memory and task state. Run
+Any stdio MCP client can join the same memory and task state. Run
 `hive.py client-info PROJECT` for their local connection command, then load the
-project's `AGENTS.md` workflow in that client. Context and session tools accept a
-stable client ID such as `cursor`; automatic registration and headless execution
-remain available only for the three verified CLIs. [Other harness guide →](docs/other-harnesses.md)
+project’s `AGENTS.md` workflow in that client. Context and session tools accept a
+stable lowercase client ID; automatic registration and queued headless execution
+are limited to verified CLI adapters. [Connect another agent →](docs/other-harnesses.md)
 
 ### 3 · Work as usual
 
@@ -220,8 +228,8 @@ From the HiveMind folder, run this after setup or an update:
 ```
 
 `verify` creates a disposable vault and Git project. It starts two separate MCP
-server processes, saves memory and a Codex checkpoint in the first, then checks
-that a fresh Grok context retrieves the right project note and handoff within a
+server processes, saves memory and a session checkpoint in the first, then checks
+that a fresh context retrieves the right project note and handoff within a
 1,000 estimated-token budget. It also checks safe memory retry, project
 isolation, and Git drift detection. The command returns a nonzero exit code on
 failure and uses **no paid agent/model calls**. Your real vault and projects are
@@ -236,9 +244,9 @@ check its live session.
 
 ```mermaid
 flowchart TB
-    C[Codex] --> M
-    G[Grok Build] --> M
-    A[Antigravity] --> M
+    A1[Agent A] --> M
+    A2[Agent B] --> M
+    A3[Any stdio MCP agent] --> M
     M[Local HiveMind MCP bridge]
     M <--> V["Markdown vault<br/>Style · preferences · project memory"]
     M <--> D["SQLite<br/>Tasks · claims · events · messages"]
@@ -249,7 +257,7 @@ flowchart TB
     classDef agent fill:#182b2c,stroke:#8ef0cc,color:#edfff8
     classDef core fill:#23213d,stroke:#a59fff,color:#f0edff
     classDef data fill:#172338,stroke:#92b9ff,color:#e8f0ff
-    class C,G,A agent
+    class A1,A2,A3 agent
     class M core
     class V,D,O,B,Q data
 ```
@@ -419,10 +427,11 @@ The installer also supports `--dry-run`, `--name myapp`, `--skip-register`,
 For an explicitly launched interactive session with automatic exit capture:
 
 ```cmd
-.venv\Scripts\python.exe hive.py session-run myapp codex
+.venv\Scripts\python.exe hive.py session-run myapp AGENT-CLI
 ```
 
-This uses the agent's normal account usage. Substitute `grok` or `antigravity`.
+Replace `AGENT-CLI` with an installed CLI name or a locally configured adapter.
+This uses that agent's normal account usage.
 Normal agent launches still work; their handoff capture depends on following the
 installed instructions. The context budget is an estimate for the returned brief,
 not a hard limit on the agent's full conversation or account usage.
