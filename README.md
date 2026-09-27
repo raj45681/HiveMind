@@ -8,22 +8,11 @@ Keep your preferences, project context, and hard-won solutions in one local fold
 
 ![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-8EF0CC?style=flat-square&labelColor=101B2C) ![Storage Markdown + SQLite](https://img.shields.io/badge/Storage-Markdown%20%2B%20SQLite-A59FFF?style=flat-square&labelColor=101B2C) ![Interface MCP](https://img.shields.io/badge/Interface-MCP-92B9FF?style=flat-square&labelColor=101B2C) ![Hosting Not required](https://img.shields.io/badge/Hosting-Not%20required-8EF0CC?style=flat-square&labelColor=101B2C) [![License MIT](https://img.shields.io/badge/License-MIT-C9D7E8?style=flat-square&labelColor=101B2C)](LICENSE)
 
-[Watch the film](#watch-the-film) · [Quick start](#quick-start) · [How it works](#how-it-works) · [Connect an agent](docs/other-harnesses.md) · [Your memory](#your-memory) · [Backups](#back-up--move-devices) · [Documentation](#documentation)
+[Quick start](#quick-start) · [How it works](#how-it-works) · [Connect an agent](docs/other-harnesses.md) · [Your memory](#your-memory) · [Backups](#back-up--move-devices) · [Documentation](#documentation)
 
 </div>
 
 ---
-
-## Watch the film
-
-[![Introducing HiveMind: a cat sets out with a task](docs/assets/hivemind-launch-preview.gif)](docs/assets/introducing-hivemind-cat-courier.mp4)
-
-The scenes below play as short GIFs. [Watch the full 29-second film with sound (MP4)](docs/assets/introducing-hivemind-cat-courier.mp4).
-
-**One-command guided setup:** run HiveMind from your project's CMD prompt, pick
-the features you want, and start working. It enrolls the project, registers the
-supported installed agent CLIs, and checks the MCP connection. Your feature choice
-is saved for the next project on this device. [Set up HiveMind →](#quick-start)
 
 ## The idea
 
@@ -73,6 +62,11 @@ existing memory tools; the vault remains plain Markdown.
 > or embedding service. Semantic recall is an optional local model downloaded once.
 > Your AI agents still use their own services and account allowances. Retrieved
 > memory uses normal context tokens.
+
+**One-command guided setup:** run HiveMind from your project's CMD prompt, pick
+the features you want, and start working. It enrolls the project, registers the
+supported installed agent CLIs, and checks the MCP connection. Your feature choice
+is saved for the next project on this device. [Set up HiveMind →](#quick-start)
 
 ## Quick start
 
