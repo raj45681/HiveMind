@@ -26,7 +26,7 @@ budget. Non-English text and code can tokenize differently.
 The brief includes shared rules, preferences, project state and preferences, a
 compact latest-session packet, and up to three query-matched notes. With a query,
 the shared agreement and latest session are packed first, then matching notes get
-space before the remaining standing context. A matching preference or project-state
+space before the previous handoff and remaining standing context. A matching preference or project-state
 note stays in its usual section and is not duplicated. Without a query, the brief
 keeps its standing-context order. Small budgets can omit sections or evidence;
 `omitted`, `details_omitted`, and `omitted_items` make that explicit. Use
@@ -75,6 +75,13 @@ checkpoints without a fingerprint, removed worktrees, unavailable Git, and dirty
 submodules are reported as unverifiable rather than silently treated as current.
 The check is local and requires no model call. It is a point-in-time observation,
 not a lock against another process editing the repo immediately afterward.
+When the latest session has only its revision-0 start placeholder,
+`session_resume(project)` also returns `previous_handoff`: the last substantive
+checkpoint from a different session, with its own fresh Git-drift status. The
+active session remains in `session`; an explicit session ID returns only that
+session. `hive_context` includes a compact previous handoff when the selected
+budget has room, after task-specific matches take priority. Inspect the previous
+session directly if more evidence is needed.
 Projects can separately opt into [private recovery snapshots](recovery-snapshots.md)
 at these milestones. Captures are bounded and kept outside the vault and Git.
 
@@ -141,7 +148,8 @@ structured checkpoints from their validated result without a second model call.
 ## Existing installations
 
 Pull the source update, rerun `hivemind.cmd` in each enrolled project, and restart
-existing agent sessions to discover the 16 MCP tools. Initialization adds the
+existing agent sessions to discover the default 16 MCP tools (or eight in the
+optional memory profile). Initialization adds the
 session tables without replacing tasks, messages or Markdown notes.
 
 If a Windows MCP call remains running and later calls queue behind it, restart the

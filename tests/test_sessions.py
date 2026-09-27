@@ -47,6 +47,26 @@ class SessionTests(unittest.TestCase):
             self.hive.session_resume('other', self.session['id'])
         self.assertIsNone(self.hive.session_resume('other')['session'])
 
+    def test_new_session_keeps_previous_meaningful_handoff_visible(self):
+        self.hive.session_checkpoint(self.session['id'], {
+            'summary': 'Fixed the login token refresh race.',
+            'completed': ['Updated refresh locking'],
+            'verification': ['Login regression passed'],
+            'next_steps': ['Review timeout behavior'],
+            'status': 'completed'}, 0)
+        current = self.hive.session_start('app', 'cursor', 'Review timeout behavior')['session']
+        resumed = self.hive.session_resume('app')
+        self.assertEqual(resumed['session']['id'], current['id'])
+        self.assertEqual(resumed['previous_handoff']['id'], self.session['id'])
+        self.assertIn('login token refresh race', resumed['previous_handoff']['summary'])
+        self.assertEqual(resumed['previous_handoff']['verification'], ['Login regression passed'])
+        self.assertNotIn('previous_handoff', self.hive.session_resume('app', current['id']))
+        for budget in (512, 1000):
+            brief = self.hive.context(project='app', agent='cursor', budget_tokens=budget)
+            self.assertEqual(brief['session']['id'], current['id'])
+            self.assertEqual(brief['previous_handoff']['id'], self.session['id'])
+            self.assertLessEqual(brief['budget']['estimated_tokens'], budget)
+
     def test_concurrent_writers_have_one_winner_and_history_survives_backup(self):
         def save(n):
             try:

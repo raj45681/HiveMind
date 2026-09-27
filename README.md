@@ -99,6 +99,7 @@ On the first interactive run, choose what to include:
 | **2 · Graphify** | Core plus local code relationships (Python 3.12+) |
 | **3 · Both** | Core, semantic recall, and Graphify |
 | **4 · All** | Both extras plus two optional working-style questions |
+| **5 · Other MCP client** | Core memory with manual stdio connection details |
 
 Semantic recall downloads a local model; Graphify downloads an isolated
 dependency. HiveMind saves your semantic and Graphify choices on this device.
@@ -113,6 +114,10 @@ as **ready**, **skipped**, or **needs-action**, plus the bridge check and next s
 A CLI marked ready has its HiveMind entry registered and listed; restart an active
 agent session to load it. A skipped CLI can be installed later, then the same
 setup command will register it. If one CLI fails, the others are still attempted.
+Setup succeeds with no recognized CLI when the local bridge passes its probe;
+it prints the command and project-instruction path for another stdio MCP client.
+Choose **5** on a fresh interactive setup, or add `--other-client` to an explicit
+command. You can combine `--other-client` with `--with-semantic` and `--with-graphify`.
 
 To reopen the menu and change the defaults for future projects, run this from
 the project you are setting up:
@@ -124,8 +129,13 @@ the project you are setting up:
 If you installed HiveMind before the guided menu was added, use `--configure`
 once to set your defaults.
 
-No separate agent skill or manual MCP configuration is needed. Restart any agent
+Recognized CLIs need no separate skill or manual MCP configuration. Other clients
+need the printed stdio command in their own MCP settings. Restart any agent
 session that was open during setup so it can load the new bridge.
+
+Setup checks installed bridge package versions against `requirements.txt` on
+every run and repairs missing or mismatched pins. `hive.py doctor` reports the
+required and installed versions without installing anything.
 
 <details>
 <summary><strong>Advanced: unattended setup and per-run feature flags</strong></summary>
@@ -158,6 +168,14 @@ Once installed on the coordinator device, semantic recall works for **every
 enrolled project** through the existing `memory_search` and `hive_context` tools.
 No agent skill or extra MCP tool is needed. Combine both flags if you want
 Graphify as well. [Setup, privacy and limits →](docs/semantic-memory.md)
+
+Use `--tool-profile memory` to expose only eight memory and session MCP tools on
+this device. The default `full` profile exposes 16 core tools, including task
+claims and messages, plus optional Graphify. The memory profile reduces the
+serialized tool schemas by about 45% in the included synthetic benchmark; exact
+prompt-token savings depend on the client. Override one generic client's profile
+with `hive.py client-info PROJECT --profile memory`, or run the bridge with
+`hive.py serve --profile memory`. Restart clients after changing the profile.
 
 Run the same command for each new project **on this device**. Source-only graphs
 are rebuilt locally; preferences and handoffs stay in the same vault. Memory-only
@@ -239,6 +257,15 @@ This proves the local protocol path, not that a vendor client has loaded its
 registration or will follow the project instructions. The onboarding report
 checks registration; restart the client and ask it to call `hive_context` to
 check its live session.
+
+For a repeatable retrieval check, run `.venv\Scripts\python.exe hive.py benchmark`
+from the HiveMind folder (`.venv/bin/python hive.py benchmark` on Linux). It uses a
+disposable synthetic vault to report exact and paraphrase recall, unrelated and
+wrong-project results, 512/1000/1800-token context inclusion, latency, response
+bytes, and full versus memory tool-schema bytes. `--distractors 500` increases
+vault size. `--semantic` reuses an installed local model cache without a download
+or paid agent call. The fixture does not measure your private vault or guarantee
+a vendor client's behavior.
 
 ## How it works
 

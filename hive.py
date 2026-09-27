@@ -23,6 +23,9 @@ def parser():
     sub.add_parser("init", help="Initialize local coordinator and note index")
     sub.add_parser("doctor", help="Check local tools and coordinator access without model usage")
     sub.add_parser("verify", help="Run a disposable end-to-end MCP memory and handoff check without model usage")
+    s = sub.add_parser("benchmark", help="Measure retrieval and tool schema sizes in a disposable synthetic vault")
+    s.add_argument("--distractors", type=int, default=200, help="Synthetic background notes (0-2000)")
+    s.add_argument("--semantic", action="store_true", help="Reuse an installed local model cache; never download")
     sub.add_parser("status", help="List tasks from the selected coordinator")
     sub.add_parser("index", help="Refresh the local Markdown search index")
     sub.add_parser("semantic-setup", help="Install the optional local semantic memory model")
@@ -60,6 +63,7 @@ def parser():
     s.add_argument("agent_args", nargs=argparse.REMAINDER)
     s = sub.add_parser("client-info", help="Show generic stdio MCP connection details for an enrolled project")
     s.add_argument("project")
+    s.add_argument("--profile", choices=("full", "memory"), help="Override the device's default tool profile for this client")
     sub.add_parser("offline", help="Use only this folder; ignore hosted URLs and preserve existing remote data")
     s = sub.add_parser("backup", help="Create a portable local bundle with Markdown and a consistent task database snapshot")
     s.add_argument("file", type=Path)
@@ -162,6 +166,7 @@ def parser():
     s.add_argument("--http", action="store_true")
     s.add_argument("--port", type=int, default=8787)
     s.add_argument("--hostname", default="", help="Private HTTPS hostname used by your reverse proxy")
+    s.add_argument("--profile", choices=("full", "memory"), help="Override the device's default MCP tool profile")
     return p
 
 
@@ -174,6 +179,9 @@ async def execute(args):
     if args.cmd == "verify":
         from hivemind.verify import verify
         return await verify(ROOT)
+    if args.cmd == "benchmark":
+        from hivemind.benchmark import run
+        return await run(root, args.distractors, args.semantic)
     url, token, config = connection(root)
     if args.cmd == "client-info":
         from hivemind.context import validate_project
@@ -187,9 +195,15 @@ async def execute(args):
             raise ValueError("Project has no AGENTS.md workflow; enroll it with hive.py attach first")
         venv_python = root / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
         python = venv_python if venv_python.is_file() else Path(sys.executable)
+        profile = args.profile or config.get("tool_profile", "full")
+        if profile not in ("full", "memory"):
+            raise ValueError("Invalid tool_profile in hive.local.json")
+        serve_args = [str(root / "hive.py"), "serve"]
+        if profile != "full" or args.profile:
+            serve_args += ["--profile", profile]
         return {"project": args.project, "agent_id_example": "cursor",
                 "mcp": {"name": "hivemind", "transport": "stdio", "command": str(python),
-                        "args": [str(root / "hive.py"), "serve"]},
+                        "args": serve_args, "tool_profile": profile},
                 "workflow_file": str(workflow),
                 "note": "Configure this stdio server in your client's MCP settings and make its project instructions load AGENTS.md. Restart the client, then call hive_context with this project ID. Client-specific trust and MCP prompts still apply."}
     if args.cmd in {"history", "diff", "restore", "memory-audit", "handoff-search",
@@ -386,6 +400,7 @@ async def execute(args):
         if args.cmd == "doctor":
             from hivemind.cloud import cloud_settings
             from hivemind.code_index import installed
+            from hivemind.dependencies import local_dependency_status
             from hivemind.semantic import ready as semantic_ready, MODEL as semantic_model
             return {"coordinator": url or "local", "machine": config.get("machine", socket.gethostname()),
                     "memory": cloud_settings(root)[0] or url or "local",
@@ -395,6 +410,8 @@ async def execute(args):
                                    "installed": installed(root) if config.get("graphify_projects") else False},
                     "semantic_memory": {"installed": semantic_ready(root), "model": semantic_model if semantic_ready(root) else None,
                                         "authority": url or "local"},
+                    "bridge_dependencies": local_dependency_status(root / "requirements.txt"),
+                    "tool_profile": config.get("tool_profile", "full"),
                     "model_calls": 0}
         if args.cmd == "status":
             return await api.call("task_list")
@@ -415,10 +432,11 @@ def main():
     args = parser().parse_args()
     if args.cmd == "serve":
         from hivemind.server import BearerAuth, build_server, server_token
-        url, token, _ = connection(args.root)
+        url, token, config = connection(args.root)
         if args.http and url:
             raise ValueError("A joined device cannot become a second authority; use stdio bridge")
-        server = build_server(args.root, url, token, args.hostname)
+        profile = args.profile or config.get("tool_profile", "full")
+        server = build_server(args.root, url, token, args.hostname, profile)
         if args.http:
             import uvicorn
             app = BearerAuth(server.streamable_http_app(), server_token(args.root))

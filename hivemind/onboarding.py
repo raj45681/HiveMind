@@ -15,7 +15,8 @@ def choose_setup(args, config, first_setup, *, interactive=None, input_fn=input,
         raise ValueError("Invalid saved onboarding defaults in hive.local.json")
     graphify = bool(defaults.get("graphify"))
     semantic = bool(defaults.get("semantic"))
-    explicit = args.with_graphify or args.with_semantic or args.personalize
+    other_client = bool(getattr(args, "other_client", False))
+    explicit = args.with_graphify or args.with_semantic or args.personalize or other_client
     if args.configure:
         if args.dry_run or args.no_prompt or explicit:
             raise ValueError("Use --configure by itself; it opens the setup menu")
@@ -32,21 +33,24 @@ def choose_setup(args, config, first_setup, *, interactive=None, input_fn=input,
         print("  2  Core + Graphify code graphs (Python 3.12+)", file=output)
         print("  3  Core + semantic recall + Graphify", file=output)
         print("  4  All of the above + two working-style questions", file=output)
+        print("  5  Other MCP client + core memory (manual client connection)", file=output)
         while True:
             try:
-                choice = input_fn(f"Choose 0-4 [default {default_choice}]: ").strip() or default_choice
+                choice = input_fn(f"Choose 0-5 [default {default_choice}]: ").strip() or default_choice
             except EOFError:
                 choice = default_choice
-            if choice in {"0", "1", "2", "3", "4"}:
+            if choice in {"0", "1", "2", "3", "4", "5"}:
                 break
-            print("Please choose 0, 1, 2, 3 or 4.", file=output)
+            print("Please choose 0, 1, 2, 3, 4 or 5.", file=output)
         graphify = choice in {"2", "3", "4"}
         semantic = choice in {"1", "3", "4"}
         personalize = choice == "4"
+        other_client = choice == "5"
     else:
         graphify = graphify or args.with_graphify
         semantic = semantic or args.with_semantic
     return {"graphify": graphify, "semantic": semantic, "personalize": personalize,
+            "other_client": other_client,
             "persist": bool(first_setup or args.configure), "menu_shown": show_menu}
 
 

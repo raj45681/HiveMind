@@ -21,6 +21,20 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class MCPTests(unittest.IsolatedAsyncioTestCase):
+    async def test_memory_profile_exposes_only_eight_memory_and_session_tools(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            full = await build_server(tmp).list_tools()
+            memory = await build_server(tmp, tool_profile="memory").list_tools()
+            self.assertEqual({tool.name for tool in memory}, {
+                "hive_context", "memory_search", "note_read", "memory_write", "memory_learn",
+                "session_start", "session_checkpoint", "session_resume"})
+            self.assertEqual(len(full), 16)
+            full_bytes = len(json.dumps([tool.model_dump(mode="json") for tool in full]))
+            memory_bytes = len(json.dumps([tool.model_dump(mode="json") for tool in memory]))
+            self.assertLess(memory_bytes, full_bytes * .65)
+            with self.assertRaises(ValueError):
+                build_server(tmp, tool_profile="unknown")
+
     async def test_proxy_and_legacy_cloud_advertise_conservative_retries(self):
         with tempfile.TemporaryDirectory() as tmp:
             forwarded = {tool.name: tool for tool in await build_server(

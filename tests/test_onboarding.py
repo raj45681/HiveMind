@@ -11,6 +11,8 @@ from pathlib import Path
 from unittest.mock import patch
 from types import SimpleNamespace
 
+from bootstrap import ensure_bridge_dependencies
+from hivemind.dependencies import local_dependency_status
 from hivemind.onboarding import choose_setup, personalize, setup_extras, smoke_test
 from hivemind.store import Hive
 from scripts.register_agents import register_agents
@@ -20,6 +22,18 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class OnboardingTests(unittest.TestCase):
+    def test_bridge_reconciles_pin_even_when_imports_work(self):
+        mismatch = {"ok": False, "mismatched": {"mcp": {"required": "1.30.0", "installed": "1.29.0"}}}
+        matching = {"ok": True, "mismatched": {}}
+        with patch("bootstrap.bridge_dependencies", side_effect=[mismatch, matching]), \
+                patch("bootstrap.subprocess.run", side_effect=[
+                    subprocess.CompletedProcess([], 0), subprocess.CompletedProcess([], 0),
+                    subprocess.CompletedProcess([], 0)]) as run:
+            self.assertTrue(ensure_bridge_dependencies(Path("python"))["ok"])
+            self.assertIn("pip", run.call_args_list[1].args[0])
+        status = local_dependency_status(ROOT / "requirements.txt")
+        self.assertIn("mcp", status["pinned"])
+
     def test_fresh_project_setup_and_rerun_in_isolated_bundle(self):
         with tempfile.TemporaryDirectory(prefix="Hive isolated setup ") as tmp:
             bundle = Path(tmp) / "HiveMind"
@@ -44,6 +58,13 @@ class OnboardingTests(unittest.TestCase):
             self.assertEqual((project / "AGENTS.md").read_text(encoding="utf-8").count("<!-- HIVEMIND:BEGIN -->"), 1)
             config = json.loads((bundle / "hive.local.json").read_text(encoding="utf-8"))
             self.assertEqual(config["onboarding_defaults"], {"graphify": False, "semantic": False})
+            generic = subprocess.run([sys.executable, str(bundle / "bootstrap.py"), str(project),
+                                      "--other-client", "--tool-profile", "memory"],
+                                     stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
+            self.assertEqual(generic.returncode, 0, generic.stdout + generic.stderr)
+            self.assertIn("Other MCP client: configure a stdio server", generic.stdout)
+            self.assertIn('"--profile", "memory"', generic.stdout)
+            self.assertEqual(json.loads((bundle / "hive.local.json").read_text())["tool_profile"], "memory")
 
     def test_first_run_menu_offers_core_semantic_graphify_both_and_all(self):
         args = SimpleNamespace(with_graphify=False, with_semantic=False, personalize=False,
@@ -64,6 +85,10 @@ class OnboardingTests(unittest.TestCase):
                                  (graphify, semantic, profile))
                 self.assertTrue(result["persist"])
                 self.assertIn("All of the above", output.getvalue())
+        generic = choose_setup(args, {}, True, interactive=True,
+                               input_fn=lambda _: "5", output=io.StringIO())
+        self.assertTrue(generic["other_client"])
+        self.assertFalse(generic["semantic"] or generic["graphify"])
 
     def test_saved_defaults_and_reconfigure_without_surprise_prompts(self):
         args = SimpleNamespace(with_graphify=False, with_semantic=False, personalize=False,

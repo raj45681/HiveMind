@@ -225,13 +225,40 @@ def resume(hive, project, ident=''):
     with hive.connect() as c:
         recovery = c.execute('''SELECT id,revision,created,file_count,excluded_count
             FROM recovery_snapshots WHERE session=? ORDER BY revision DESC LIMIT 1''', (row['id'],)).fetchone()
-    return {'session': {'id': row['id'], 'project': row['project'], 'agent': row['agent'], 'goal': row['goal'],
+        # A newly started session contains only a placeholder. Keep the last
+        # substantive handoff discoverable without changing explicit-ID resume.
+        previous_row = None
+        if not ident and row['revision'] == 0:
+            older = c.execute('''SELECT s.id,s.agent,s.revision,c.payload,c.snapshot,c.created AS checkpoint_at
+                FROM sessions s JOIN checkpoints c ON c.session=s.id AND c.revision=s.revision
+                WHERE s.project=? COLLATE NOCASE AND s.id<>? AND s.revision>0
+                ORDER BY s.updated_at DESC,s.rowid DESC''', (project, row['id']))
+            for candidate in older:
+                handoff = json.loads(candidate['payload'])
+                if (handoff['summary'] == 'Session started; no verified handoff recorded yet.'
+                        and not any(handoff[field] for field in ('completed', 'verification', 'blockers'))):
+                    continue
+                previous_row = (candidate, handoff)
+                break
+    previous = None
+    if previous_row:
+        candidate, handoff = previous_row
+        previous = {'id': candidate['id'], 'agent': candidate['agent'], 'revision': candidate['revision'],
+                    'status': handoff['status'], 'summary': handoff['summary'],
+                    'verification': handoff['verification'][:2], 'next_steps': handoff['next_steps'][:2],
+                    'checkpoint_at': candidate['checkpoint_at'],
+                    'path': f"03-Projects/{row['project']}/Sessions/{candidate['id']}.md",
+                    'git_drift': git_drift(hive.root, project, json.loads(candidate['snapshot']))}
+    result = {'session': {'id': row['id'], 'project': row['project'], 'agent': row['agent'], 'goal': row['goal'],
             'status': payload['status'], 'revision': row['revision'], 'created': row['created'],
             'checkpoint_at': row['checkpoint_at'], 'checkpoint': payload, 'git': saved,
             'git_drift': git_drift(hive.root, project, saved),
             'recovery_snapshot': dict(recovery) if recovery else None,
             'path': f"03-Projects/{row['project']}/Sessions/{row['id']}.md"},
             'evidence_policy': 'Verification is agent-reported. Git changes and successful process exit are not proof of completion.'}
+    if previous:
+        result['previous_handoff'] = previous
+    return result
 
 
 def persist_view(hive, result):

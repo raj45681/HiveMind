@@ -31,21 +31,27 @@ INSTRUCTIONS = (
 )
 
 
-def build_server(root, remote_url="", remote_token="", hostname=""):
+def build_server(root, remote_url="", remote_token="", hostname="", tool_profile="full"):
     from .cloud import cloud_settings
+
+    if tool_profile not in {"full", "memory"}:
+        raise ValueError("MCP tool profile must be 'full' or 'memory'")
 
     hosts = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
     origins = ["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"]
     if hostname:
         hosts += [hostname, hostname + ":*"]
         origins += ["https://" + hostname, "https://" + hostname + ":*"]
-    mcp = FastMCP("HiveMind", instructions=INSTRUCTIONS, host="127.0.0.1", port=8787,
+    instructions = INSTRUCTIONS if tool_profile == "full" else (
+        INSTRUCTIONS + " This client exposes memory and session tools only; use the full profile for task and message coordination.")
+    mcp = FastMCP("HiveMind", instructions=instructions, host="127.0.0.1", port=8787,
                   stateless_http=True, json_response=True,
                   transport_security=TransportSecuritySettings(allowed_hosts=hosts, allowed_origins=origins))
     # A forwarding bridge cannot assert the retry behavior of an older remote
     # authority. Legacy cloud memory also has its own outbox and API semantics.
     local_retry = RETRY_IDEMPOTENT if not remote_url else MUTATING
     memory_retry = local_retry if not cloud_settings(root)[0] else MUTATING
+    coordination_tool = mcp.tool if tool_profile == "full" else lambda **_kwargs: lambda function: function
 
     async def call(tool, **kwargs):
         async with backend(root, remote_url, remote_token) as api:
@@ -53,7 +59,7 @@ def build_server(root, remote_url="", remote_token="", hostname=""):
 
     # This capability belongs to the local device even when memory is remote.
     # Installations without enabled projects retain the original tool surface.
-    if connection(root)[2].get("graphify_projects"):
+    if tool_profile == "full" and connection(root)[2].get("graphify_projects"):
         @mcp.tool(annotations=ADDITIVE, structured_output=False)
         async def code_query(project: str, query: str, budget_tokens: int = 1000) -> str:
             """Query local code relationships with file/line references. Auto-refreshes changed source, no model calls. Budget 256-2000 estimated tokens. On unavailable/disabled use native search."""
@@ -85,7 +91,7 @@ def build_server(root, remote_url="", remote_token="", hostname=""):
 
     @mcp.tool(annotations=READ_ONLY)
     async def session_resume(project: str, ident: str = "") -> str:
-        """Read a project's latest session and compare its saved Git fingerprint with the live worktree. A changed or unverifiable handoff needs inspection. Does not execute work."""
+        """Read a project's latest session and compare Git state. A new placeholder session also exposes the last meaningful prior handoff. Explicit ID reads only that session. Does not execute work."""
         return await call("session_resume", project=project, ident=ident)
 
     @mcp.tool(annotations=READ_ONLY)
@@ -100,7 +106,7 @@ def build_server(root, remote_url="", remote_token="", hostname=""):
         """Create/update memory, decisions or project notes. Include source/date. Existing notes need their read revision; repeating identical content is a no-op."""
         return await call("memory_write", path=path, content=content, expected_revision=expected_revision)
 
-    @mcp.tool(annotations=ADDITIVE)
+    @coordination_tool(annotations=ADDITIVE)
     async def task_create(spec: TaskSpec) -> str:
         """Queue an authorized task with explicit acceptance criteria, dependencies and optional agent/machine."""
         return await call("task_create", spec=spec.model_dump())
@@ -120,37 +126,37 @@ def build_server(root, remote_url="", remote_token="", hostname=""):
                           evidence=evidence, basis=basis, expected_revision=expected_revision,
                           trigger=trigger, steps=steps, applicability=applicability)
 
-    @mcp.tool(annotations=READ_ONLY)
+    @coordination_tool(annotations=READ_ONLY)
     async def task_get(ident: str) -> str:
         """Get one task brief, dependencies and result; ownership tokens are private."""
         return await call("task_get", ident=ident)
 
-    @mcp.tool(annotations=READ_ONLY)
+    @coordination_tool(annotations=READ_ONLY)
     async def task_list(status: str = "", limit: int = 25) -> str:
         """List compact task summaries. Empty status includes all states. No automatic execution."""
         return await call("task_list", status=status, limit=limit)
 
-    @mcp.tool(annotations=MUTATING)
+    @coordination_tool(annotations=MUTATING)
     async def task_claim(worker: str, agent: Agent, ident: str = "", machine: str = "", lease_seconds: int = 120) -> str:
         """Atomically claim a ready task. Returns a private token; renew before lease expiry. Never run twice."""
         return await call("task_claim", worker=worker, agent=agent, ident=ident, machine=machine, lease_seconds=lease_seconds)
 
-    @mcp.tool(annotations=MUTATING)
+    @coordination_tool(annotations=MUTATING)
     async def task_heartbeat(ident: str, token: str) -> str:
         """Renew your task lease for 120 seconds; bookkeeping should be done by a local worker."""
         return await call("task_heartbeat", ident=ident, token=token)
 
-    @mcp.tool(annotations=local_retry)
+    @coordination_tool(annotations=local_retry)
     async def task_finish(ident: str, token: str, result: TaskResult) -> str:
         """Finish an owned task with a short handoff; done requires verification evidence. An identical retry cannot finish it twice, but may return an ownership error; use task_get to confirm."""
         return await call("task_finish", ident=ident, token=token, result=result.model_dump())
 
-    @mcp.tool(annotations=ADDITIVE)
+    @coordination_tool(annotations=ADDITIVE)
     async def message_send(sender: str, recipient: str, body: str, task: str = "") -> str:
         """Send a targeted handoff up to 1600 characters. This does not wake another model."""
         return await call("message_send", sender=sender, recipient=recipient, body=body, task=task)
 
-    @mcp.tool(annotations=READ_ONLY)
+    @coordination_tool(annotations=READ_ONLY)
     async def message_inbox(recipient: str, after: int = 0) -> str:
         """Read up to 10 messages after a cursor. Save next_cursor; do not poll from an LLM loop."""
         return await call("message_inbox", recipient=recipient, after=after)

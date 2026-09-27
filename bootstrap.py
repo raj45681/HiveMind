@@ -10,6 +10,32 @@ import venv
 ROOT = Path(__file__).resolve().parent
 
 
+def bridge_dependencies(python):
+    command = [str(python), "-c",
+               "import json; from hivemind.dependencies import local_dependency_status; "
+               "print(json.dumps(local_dependency_status('requirements.txt')))"]
+    result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True,
+                            encoding="utf-8", errors="replace")
+    if result.returncode:
+        raise ValueError("Could not inspect bridge dependencies: " + (result.stderr.strip() or result.stdout.strip())[-300:])
+    return json.loads(result.stdout)
+
+
+def ensure_bridge_dependencies(python, dry_run=False):
+    dependencies = bridge_dependencies(python)
+    ready = subprocess.run([str(python), "-c", "import mcp; import pydantic"], capture_output=True)
+    if not dependencies["ok"] or ready.returncode:
+        if dry_run:
+            raise ValueError("Bridge dependencies are missing or differ from requirements.txt; rerun setup without --dry-run")
+        print("Reconciling pinned bridge dependencies from requirements.txt...", flush=True)
+        subprocess.run([str(python), "-m", "pip", "install", "-r", str(ROOT / "requirements.txt")], check=True)
+        dependencies = bridge_dependencies(python)
+        ready = subprocess.run([str(python), "-c", "import mcp; import pydantic"], capture_output=True)
+        if not dependencies["ok"] or ready.returncode:
+            raise ValueError("Pinned bridge dependencies are still unavailable after installation")
+    return dependencies
+
+
 def main():
     parser = argparse.ArgumentParser(description="Set up this project's shared local HiveMind folder")
     parser.add_argument("project", nargs="?", type=Path, default=Path.cwd())
@@ -21,6 +47,8 @@ def main():
     parser.add_argument("--personalize", action="store_true", help="Optionally save two explicit cross-project working preferences")
     parser.add_argument("--with-graphify", action="store_true", help="Install and enable optional local code graphs (Python 3.12+)")
     parser.add_argument("--with-semantic", action="store_true", help="Install local semantic memory search (one-time model download)")
+    parser.add_argument("--other-client", action="store_true", help="Use a generic stdio MCP client and show its connection details")
+    parser.add_argument("--tool-profile", choices=("full", "memory"), help="Set the default MCP tool profile for this HiveMind device")
     args = parser.parse_args()
     if sys.version_info < (3, 11):
         raise ValueError("Install Python 3.11 or newer, then run this command again")
@@ -37,12 +65,7 @@ def main():
             raise ValueError("A preview needs the initial Python environment; run setup once first")
         print("Preparing the local Python environment...", flush=True)
         venv.EnvBuilder(with_pip=True).create(ROOT / ".venv")
-    ready = subprocess.run([str(target), "-c", "import mcp; import pydantic"], capture_output=True)
-    if ready.returncode:
-        if args.dry_run:
-            raise ValueError("Dependencies are missing; run setup once before previewing")
-        print("Installing the local bridge dependencies (one-time internet access)...", flush=True)
-        subprocess.run([str(target), "-m", "pip", "install", "-r", str(ROOT / "requirements.txt")], check=True)
+    ensure_bridge_dependencies(target, args.dry_run)
     if not args.dry_run:
         from hivemind.seed import seed_vault
         seed_vault(ROOT)
@@ -55,6 +78,11 @@ def main():
         from hivemind.store import atomic_write
         latest = json.loads(config.read_text(encoding="utf-8-sig"))
         latest["onboarding_defaults"] = {key: options[key] for key in ("graphify", "semantic")}
+        atomic_write(config, json.dumps(latest, indent=2) + "\n")
+    if args.tool_profile and not args.dry_run:
+        from hivemind.store import atomic_write
+        latest = json.loads(config.read_text(encoding="utf-8-sig"))
+        latest["tool_profile"] = args.tool_profile
         atomic_write(config, json.dumps(latest, indent=2) + "\n")
     command = [str(target), str(ROOT / "hive.py"), "attach", str(args.project.resolve())]
     if args.name:
@@ -79,8 +107,9 @@ def main():
         return 0
     from hivemind.onboarding import setup_extras
     extras = setup_extras(ROOT, target, project_id, options)
-    if args.skip_register:
-        agents = {name: {"status": "skipped", "detail": "requested with --skip-register"}
+    if args.skip_register or options["other_client"]:
+        reason = "requested with --skip-register" if args.skip_register else "using another MCP client"
+        agents = {name: {"status": "skipped", "detail": reason}
                   for name in ("codex", "grok", "antigravity")}
     else:
         registration = subprocess.run([str(target), str(ROOT / "scripts/register_agents.py"), "--json"],
@@ -108,14 +137,21 @@ def main():
         print(f"  {name}: {result['status']} ({result['detail']})")
     for name, result in extras.items():
         print(f"  {name}: {result['status']} ({result['detail']})")
-    if not args.skip_register and all(result["status"] == "skipped" for result in agents.values()):
-        print("  Agents: needs-action (install at least one supported CLI, then rerun setup)")
+    generic = options["other_client"] or all(result["status"] == "skipped" for result in agents.values())
+    if generic and bridge["status"] == "ready":
+        info = subprocess.run([str(target), str(ROOT / "hive.py"), "client-info", project_id],
+                              capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if info.returncode == 0:
+            client = json.loads(info.stdout)
+            print("  Other MCP client: configure a stdio server named hivemind")
+            print(f"    command: {client['mcp']['command']}")
+            print(f"    args: {json.dumps(client['mcp']['args'])}")
+            print(f"    project instructions: {client['workflow_file']}")
     print(f"  MCP bridge: {bridge['status']} ({bridge['detail']})")
     print(f"  Vault: {ROOT / 'vault'}")
-    if not args.skip_register:
+    if not args.skip_register and not options["other_client"] and not generic:
         print("  Next: restart active agent sessions in this project; accept normal trust/MCP prompts.")
-    if ((not args.skip_register and all(result["status"] == "skipped" for result in agents.values()))
-            or any(result["status"] == "needs-action" for result in agents.values())
+    if (any(result["status"] == "needs-action" for result in agents.values())
             or any(result["status"] == "needs-action" for result in extras.values()) or bridge["status"] != "ready"):
         print("  Rerun the same command after resolving the needs-action items; enrollment is safe to repeat.")
         return 1

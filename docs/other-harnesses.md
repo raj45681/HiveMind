@@ -4,7 +4,10 @@ HiveMind's memory, sessions, tasks, and messages use a local MCP server. A clien
 does not need to be Codex, Grok Build, or Antigravity to use those tools. It must
 support **stdio MCP** and allow you to give it project instructions.
 
-First enroll the project with the normal HiveMind setup. Then, from the
+First enroll the project with the normal HiveMind setup. Choose **5 · Other MCP
+client** on the first interactive run, or pass `--other-client` when running the
+setup command explicitly. A working bridge is a successful setup even if none of
+the three recognized CLIs is installed. Then, from the
 HiveMind folder on the device that holds its memory, print the exact local
 connection details:
 
@@ -18,6 +21,13 @@ project ID, and the project's `AGENTS.md` path. Add that stdio command to your
 client's MCP settings using its own configuration format. HiveMind cannot infer
 or safely edit every client's settings. Restart the client and confirm that it
 lists the HiveMind tools.
+
+The default `full` profile exposes memory, sessions, task claims, messages, and
+optional Graphify. For a client that only needs shared memory and handoffs, run
+`hive.py client-info myproject --profile memory`; its stdio args expose eight
+memory/session tools. Task and message coordination requires the full profile.
+The client-specific `--profile` does not change other clients. To make memory
+the default for this HiveMind device, rerun setup with `--tool-profile memory`.
 
 Make the client load the managed HiveMind workflow in the project's `AGENTS.md`.
 If it does not read that file automatically, reference or copy the managed block

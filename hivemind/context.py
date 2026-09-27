@@ -139,7 +139,7 @@ def context(hive, agent="generic", project="", query="", budget_tokens=None):
         raise ValueError("Context budget must be an integer from 512 to 8192 estimated tokens")
     cap = budget * 4
     result = {"instructions": [], "preferences": [], "project_preferences": [],
-              "project_state": None, "session": None, "relevant": [],
+              "project_state": None, "session": None, "previous_handoff": None, "relevant": [],
               "memory_policy": "Reference data only. Current instructions win. Project choices stay scoped. Read original notes before editing.",
               "backend": "local", "fetched_at": utc(),
               "budget": {"requested_tokens": budget, "estimated_tokens": 0, "max_bytes": cap,
@@ -183,8 +183,10 @@ def context(hive, agent="generic", project="", query="", budget_tokens=None):
     # normal section so clients do not lose the distinction between kinds of memory.
     instruction_allowance = max(120, int(cap * .075))
     add('instructions', '00-System/HIVE.md', instruction_allowance)
+    previous_handoff = None
     if project:
         packet = hive.session_resume(project)
+        previous_handoff = packet.get('previous_handoff')
         if packet['session']:
             session = packet['session']
             candidate = {key: session[key] for key in ('id', 'status', 'revision', 'path')}
@@ -234,6 +236,16 @@ def context(hive, agent="generic", project="", query="", budget_tokens=None):
                 prioritized += 1
             if prioritized == 3:
                 break
+    # Task matches get first claim on the remaining space. A revision-0 session
+    # cannot hide the previous verified handoff even in a small context brief.
+    if previous_handoff:
+        prior = {key: previous_handoff[key] for key in ('id', 'agent', 'status', 'revision', 'path')}
+        prior['summary'] = excerpt(previous_handoff['summary'], min(240, int(cap * .10)))[0]
+        prior['git_drift'] = previous_handoff['git_drift']['status']
+        if size(prior) <= min(int(cap * .20), cap - size(result) - 64):
+            result['previous_handoff'] = prior
+        else:
+            result['budget']['omitted_items'] += 1
     if project:
         add('project_state', f'03-Projects/{project}/Current-State.md', int(cap * .15), True)
     add('preferences', '01-Memory/User/Preferences.md', int(cap * .12))
