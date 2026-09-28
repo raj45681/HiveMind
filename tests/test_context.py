@@ -51,6 +51,19 @@ class ContextTests(unittest.TestCase):
         ranked = self.hive.search('freshness')
         self.assertEqual(ranked[0]['path'], '01-Memory/z-fresh.md')
 
+    def test_long_query_does_not_match_only_generic_project_word(self):
+        self.hive.write_memory('03-Projects/app/notes.md',
+                               '# Background\n\nRoutine build observation and project administration.')
+        self.assertEqual(self.hive.search('unrelated project accounting system', project='app'), [])
+
+    def test_archived_project_notes_keep_project_scope(self):
+        for project in ('alpha', 'beta'):
+            atomic_write(self.hive.note_path(f'99-Archive/03-Projects/{project}/fix.md'),
+                         '# Old fix\n\nNebular payroll recovery.')
+        self.assertEqual([note['path'] for note in self.hive.search(
+            'nebular payroll', archive=True, project='alpha')],
+            ['99-Archive/03-Projects/alpha/fix.md'])
+
     def test_project_preferences_latest_session_and_original_notes_unchanged(self):
         # Real starter rules exercise competition for room in the smallest brief.
         for template in (ROOT / 'templates/vault').rglob('*.md'):

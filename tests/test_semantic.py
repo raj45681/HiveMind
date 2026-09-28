@@ -1,6 +1,8 @@
 """Local semantic retrieval, including a real paraphrase when the model is installed."""
 import json
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -12,6 +14,23 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class SemanticFallbackTests(unittest.TestCase):
+    def test_setup_requires_offline_embedding_before_ready_marker(self):
+        with tempfile.TemporaryDirectory() as folder, \
+                patch.object(semantic, 'interpreter', return_value=Path(sys.executable)), \
+                patch.object(semantic.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)), \
+                patch.object(semantic, '_embed', side_effect=[[[0.0] * 384], RuntimeError('offline cache absent')]) as embed:
+            with self.assertRaisesRegex(RuntimeError, 'offline cache absent'):
+                semantic.setup(folder)
+            self.assertEqual([call.kwargs['download'] for call in embed.call_args_list], [True, False])
+            self.assertFalse((Path(folder) / 'runtime/tools/semantic-ready.json').exists())
+
+    def test_marker_without_working_model_is_degraded(self):
+        with patch.object(semantic, 'ready', return_value=True), \
+                patch.object(semantic, '_embed', side_effect=RuntimeError('cache absent')):
+            status = semantic.health(ROOT)
+        self.assertEqual(status['status'], 'degraded')
+        self.assertIn('cache absent', status['detail'])
+
     def test_keyword_search_still_works_without_optional_model(self):
         with tempfile.TemporaryDirectory() as folder:
             hive = Hive(folder)
@@ -22,6 +41,8 @@ class SemanticFallbackTests(unittest.TestCase):
             with patch.object(semantic, 'ready', return_value=True), patch.object(semantic, '_embed', side_effect=RuntimeError('model unavailable')):
                 self.assertEqual(hive.search('credentials')[0]['path'], '01-Memory/Solutions/auth.md')
                 self.assertIn('model unavailable', (hive.runtime / 'semantic-last-error.log').read_text())
+                brief = hive.context(query='credentials', budget_tokens=1000)
+                self.assertIn('degraded', brief['retrieval_warning'])
 
 
 @unittest.skipUnless(semantic.ready(ROOT), 'Optional local FastEmbed model is not installed')
@@ -31,12 +52,25 @@ class RealSemanticTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.hive = Hive(self.temp.name)
         original = semantic._embed
+        self.real_embed = original
         self.patch_embed = patch.object(semantic, '_embed', side_effect=lambda root, texts: original(ROOT, texts))
         self.patch_ready = patch.object(semantic, 'ready', return_value=True)
         self.patch_embed.start()
         self.patch_ready.start()
         self.addCleanup(self.patch_embed.stop)
         self.addCleanup(self.patch_ready.stop)
+
+    def test_offline_health_detects_missing_model_cache(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            marker = root / 'runtime/tools/semantic-ready.json'
+            marker.parent.mkdir(parents=True)
+            marker.write_text(json.dumps({'model': semantic.MODEL, 'version': semantic.VERSION}))
+            with patch.object(semantic, 'interpreter', return_value=semantic.interpreter(ROOT)), \
+                    patch.object(semantic, '_embed', side_effect=self.real_embed):
+                status = semantic.health(root)
+            self.assertEqual(status['status'], 'degraded')
+            self.assertIn('Offline model probe failed', status['detail'])
 
     def test_paraphrase_recall_scope_context_and_reindex(self):
         target = '03-Projects/app/Solutions/auth-race.md'

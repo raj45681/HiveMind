@@ -347,8 +347,8 @@ bridge conservatively marks writes non-idempotent because it cannot verify an
 older authority's behavior; legacy cloud-memory writes are treated the same way.
 
 Task and messaging tools support explicit coordination; their presence does not
-launch other agents. All 16 core tools are currently exposed. A smaller tool profile
-is a proposed optimization, not an available setting yet.
+launch other agents. The full profile exposes coordination tools; the memory profile
+exposes only recall and memory tools. Select it during setup with `--tool-profile memory`.
 
 **When Graphify runs:** selecting it in setup or using `--with-graphify` builds the initial index.
 Subsequent `code_query` calls check for source changes and refresh as needed.
@@ -481,7 +481,8 @@ messages does not wake a model.
 
 Tasks use claims and leases to prevent duplicate ownership. Write tasks require
 a clean Git repository with a committed HEAD and run in an isolated worktree.
-Expired tasks block for inspection and explicit requeue. Reported evidence needs
+Expired leases display as blocked even on read-only task views; the next coordinator
+write records the expiry event. Inspect before explicitly requeuing. Reported evidence needs
 review; nothing automatically merges, pushes, or deploys code.
 
 </details>

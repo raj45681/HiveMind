@@ -64,14 +64,29 @@ def search(hive, query, limit=5, archive=False, project=""):
     prefix = f"03-Projects/{project}/"
     with hive.connect() as c:
         rows = c.execute("""SELECT path,title,content,revision,bm25(notes,0,3,1,0) AS rank
-            FROM notes WHERE notes MATCH ? AND (? OR path NOT LIKE '99-Archive/%')
+            FROM notes WHERE notes MATCH ?
+            AND (path LIKE '00-System/%' OR path LIKE '01-Memory/%'
+                 OR path LIKE '02-Decisions/%' OR path LIKE '03-Projects/%'
+                 OR path LIKE '05-Agents/%' OR path LIKE '99-Archive/%')
+            AND (? OR path NOT LIKE '99-Archive/%')
             AND path NOT LIKE '01-Memory/Candidates/%'
             AND path NOT LIKE '03-Projects/%/Review-Queue/%'
+            AND path NOT LIKE '03-Projects/%/Sessions/%'
             AND (?='' OR path NOT LIKE '03-Projects/%' OR lower(substr(path,1,?))=lower(?))
-            ORDER BY rank,path LIMIT 80""", (match, archive, project, len(prefix), prefix)).fetchall()
+            AND (?='' OR path NOT LIKE '99-Archive/03-Projects/%'
+                 OR lower(substr(path,12,?))=lower(?))
+            ORDER BY rank,path LIMIT 80""", (match, archive, project, len(prefix), prefix,
+                                              project, len(prefix), prefix)).fetchall()
     results = []
     strongest = max((-float(row['rank']) for row in rows), default=1) or 1
+    distinct_words = {word.casefold() for word in words}
     for row in rows:
+        # FTS OR is useful for partial recall, but a long query sharing only
+        # one generic word with a note is weak evidence of relevance.
+        if len(distinct_words) >= 3:
+            indexed_words = set(re.findall(r'\w+', row['title'] + ' ' + row['content'], flags=re.UNICODE))
+            if len(distinct_words & {word.casefold() for word in indexed_words}) < 2:
+                continue
         try:
             age_days = max(0, (time.time() - hive.note_path(row['path']).stat().st_mtime) / 86400)
         except OSError:
@@ -87,6 +102,12 @@ def search(hive, query, limit=5, archive=False, project=""):
     try:
         from .semantic import recall
         semantic = recall(hive, query, project=project, archive=archive)
+        error_log = hive.runtime / 'semantic-last-error.log'
+        if error_log.exists():
+            try:
+                error_log.unlink()
+            except OSError:
+                pass
     except Exception as exc:
         # This optional local index must never block access to Markdown or FTS.
         try:
@@ -105,11 +126,15 @@ def search(hive, query, limit=5, archive=False, project=""):
         semantic_rows = {row['path']: row for row in found}
     else:
         semantic_rows = {}
-    # Local BGE cosine scores are high even for unrelated text. Require both an
-    # absolute match and proximity to the best semantic hit.
-    minimum = max(0.60, semantic[0][0] - 0.05)
+    # Local BGE can score unrelated background as highly as a paraphrase.
+    # Admit semantic-only results when the lead clears an absolute floor and
+    # stands apart from background; lexical matches remain independent.
+    lead = semantic[0][0]
+    runner = semantic[1][0] if len(semantic) > 1 else 0.0
+    distinctive = lead >= 0.60 and (lead >= 0.78 or lead - runner >= 0.015)
+    minimum = max(0.60, lead - 0.05)
     for rank, (similarity, path, passage) in enumerate(semantic, 1):
-        if similarity < minimum:
+        if similarity < minimum or (path not in candidates and (not distinctive or rank > 1)):
             continue
         scores[path] = scores.get(path, 0) + 1 / (60 + rank)
         if path not in candidates:
@@ -218,7 +243,12 @@ def context(hive, agent="generic", project="", query="", budget_tokens=None):
         state_path = f'03-Projects/{project}/Current-State.md'.lower() if project else ''
         project_preferences = f'03-Projects/{project}/Preferences/'.lower() if project else ''
         prioritized = 0
-        for match in search(hive, query, limit=5, project=project):
+        matches = search(hive, query, limit=5, project=project)
+        if (hive.runtime / 'semantic-last-error.log').exists():
+            warning = 'Local semantic recall degraded; keyword results only. Run hive.py doctor for details.'
+            if size(result) + len(warning.encode('utf-8')) + 32 < cap:
+                result['retrieval_warning'] = warning
+        for match in matches:
             name, lower = match['path'], match['path'].lower()
             if lower in seen:
                 continue

@@ -401,15 +401,17 @@ async def execute(args):
             from hivemind.cloud import cloud_settings
             from hivemind.code_index import installed
             from hivemind.dependencies import local_dependency_status
-            from hivemind.semantic import ready as semantic_ready, MODEL as semantic_model
+            from hivemind.semantic import health as semantic_health
+            semantic_status = semantic_health(root)
             return {"coordinator": url or "local", "machine": config.get("machine", socket.gethostname()),
                     "memory": cloud_settings(root)[0] or url or "local",
                     "agents": {name: shutil.which(exe) for name, exe in {"codex": "codex", "grok": "grok", "antigravity": "agy"}.items()},
                     "task_access": "ok" if isinstance(await api.call("task_list", limit=1), list) else "unexpected",
                     "code_index": {"enabled_projects": config.get("graphify_projects", []),
                                    "installed": installed(root) if config.get("graphify_projects") else False},
-                    "semantic_memory": {"installed": semantic_ready(root), "model": semantic_model if semantic_ready(root) else None,
-                                        "authority": url or "local"},
+                    "semantic_memory": {"installed": semantic_status["status"] == "ready",
+                                        "model": semantic_status["model"], "status": semantic_status["status"],
+                                        "detail": semantic_status["detail"], "authority": url or "local"},
                     "bridge_dependencies": local_dependency_status(root / "requirements.txt"),
                     "tool_profile": config.get("tool_profile", "full"),
                     "model_calls": 0}

@@ -67,6 +67,26 @@ class SessionTests(unittest.TestCase):
             self.assertEqual(brief['previous_handoff']['id'], self.session['id'])
             self.assertLessEqual(brief['budget']['estimated_tokens'], budget)
 
+    def test_wrapper_only_interruption_does_not_hide_verified_handoff(self):
+        self.hive.session_checkpoint(self.session['id'], {
+            'summary': 'Fixed the login race.', 'completed': ['Serialized refresh'],
+            'verification': ['Login regression passed'], 'status': 'completed'}, 0)
+        empty = self.hive.session_start('app', 'codex', 'Interrupted attempt')['session']
+        self.hive.session_checkpoint(empty['id'], {
+            'summary': 'Session started; no verified handoff recorded yet.',
+            'source': 'wrapper', 'status': 'interrupted',
+            'blockers': ['Agent process interrupted or exited unsuccessfully; inspect before resuming.']}, 0)
+        resumed = self.hive.session_resume('app')
+        self.assertEqual(resumed['session']['id'], empty['id'])
+        self.assertEqual(resumed['previous_handoff']['id'], self.session['id'])
+        another = self.hive.session_start('app', 'grok', 'Continue')['session']
+        self.assertEqual(self.hive.session_resume('app')['previous_handoff']['id'], self.session['id'])
+        self.hive.session_checkpoint(another['id'], {
+            'summary': 'Session started; no verified handoff recorded yet.',
+            'source': 'wrapper', 'status': 'needs_handoff',
+            'next_steps': ['Review work and save a verified handoff; exit code 0 is not verification.']}, 0)
+        self.assertEqual(self.hive.session_resume('app')['previous_handoff']['id'], self.session['id'])
+
     def test_concurrent_writers_have_one_winner_and_history_survives_backup(self):
         def save(n):
             try:

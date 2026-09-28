@@ -225,18 +225,20 @@ def resume(hive, project, ident=''):
     with hive.connect() as c:
         recovery = c.execute('''SELECT id,revision,created,file_count,excluded_count
             FROM recovery_snapshots WHERE session=? ORDER BY revision DESC LIMIT 1''', (row['id'],)).fetchone()
-        # A newly started session contains only a placeholder. Keep the last
-        # substantive handoff discoverable without changing explicit-ID resume.
+        # Wrapper interruption checkpoints may advance the revision while
+        # preserving the start placeholder. They are not useful handoffs.
+        def substantive(data):
+            return (data['summary'] != 'Session started; no verified handoff recorded yet.'
+                    or any(data[key] for key in ('completed', 'changed_files', 'verification')))
         previous_row = None
-        if not ident and row['revision'] == 0:
+        if not ident and not substantive(payload):
             older = c.execute('''SELECT s.id,s.agent,s.revision,c.payload,c.snapshot,c.created AS checkpoint_at
                 FROM sessions s JOIN checkpoints c ON c.session=s.id AND c.revision=s.revision
                 WHERE s.project=? COLLATE NOCASE AND s.id<>? AND s.revision>0
                 ORDER BY s.updated_at DESC,s.rowid DESC''', (project, row['id']))
             for candidate in older:
                 handoff = json.loads(candidate['payload'])
-                if (handoff['summary'] == 'Session started; no verified handoff recorded yet.'
-                        and not any(handoff[field] for field in ('completed', 'verification', 'blockers'))):
+                if not substantive(handoff):
                     continue
                 previous_row = (candidate, handoff)
                 break

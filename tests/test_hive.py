@@ -57,6 +57,17 @@ class StoreTests(unittest.TestCase):
         new = self.hive.claim("b", "codex", task["id"])
         self.assertNotEqual(new["claim_token"], claim["claim_token"])
 
+    def test_expired_claim_is_blocked_in_read_only_views(self):
+        task = self.hive.create_task(spec())
+        self.hive.claim('worker', 'codex', task['id'])
+        with self.hive.connect(write=True) as c:
+            c.execute('UPDATE tasks SET lease=? WHERE id=?', (time.time() - 1, task['id']))
+        self.assertEqual(self.hive.get_task(task['id'])['status'], 'blocked')
+        self.assertEqual([row['id'] for row in self.hive.list_tasks(status='blocked')], [task['id']])
+        self.assertEqual(self.hive.list_tasks(status='running'), [])
+        with self.hive.connect() as c:
+            self.assertEqual(c.execute('SELECT status FROM tasks WHERE id=?', (task['id'],)).fetchone()[0], 'running')
+
     def test_owner_and_evidence_required(self):
         task = self.hive.create_task(spec())
         claim = self.hive.claim("a", "codex", task["id"])
@@ -152,6 +163,19 @@ class StoreTests(unittest.TestCase):
         self.assertTrue(any(hit.get("source_type") == "checkpoint" for hit in
                             self.hive.search("cosmic widget", project="alpha", include_handoffs=True)))
         self.assertFalse(any(hit.get("source_type") for hit in self.hive.search("cosmic widget", project="alpha")))
+
+    def test_generated_records_do_not_leak_into_ordinary_search(self):
+        session = self.hive.session_start('beta', 'codex', 'Nebular payroll')['session']
+        self.hive.session_checkpoint(session['id'], {'summary': 'Nebular payroll reviewed.',
+            'completed': ['Inspected payroll'], 'verification': ['Review completed'], 'status': 'completed'}, 0)
+        task = self.hive.create_task(spec(project='beta', title='Nebular payroll'))
+        claim = self.hive.claim('worker', 'codex', task['id'])
+        self.hive.finish(task['id'], claim['claim_token'], {'status': 'done',
+            'summary': 'Nebular payroll fixed', 'verification': ['Checked']})
+        self.assertEqual(self.hive.search('nebular payroll', project='alpha'), [])
+        self.assertEqual(self.hive.search('nebular payroll', project='alpha', include_handoffs=True), [])
+        self.assertEqual(self.hive.search('nebular payroll', project='beta'), [])
+        self.assertTrue(self.hive.search('nebular payroll', project='beta', include_handoffs=True))
 
     def test_memory_boundary_and_personality_protection(self):
         for path in ("../outside.md", ".obsidian/config.md", "00-System/HIVE.md", "C:/secret.md"):

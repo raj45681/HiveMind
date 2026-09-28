@@ -12,6 +12,8 @@ class RetrievalBenchmarkTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(cases["exact"]["hit"])
         self.assertFalse(cases["paraphrase"]["hit"])
         self.assertTrue(cases["unrelated"]["hit"])
+        self.assertTrue(cases["unrelated_domain"]["hit"])
+        self.assertTrue(cases["unrelated_near"]["hit"])
         self.assertTrue(cases["wrong_project"]["hit"])
         for budget in report["context"]["budgets"]:
             self.assertTrue(budget["target_included"])

@@ -325,10 +325,14 @@ class Hive:
     def _event(self, c, ident, event, detail=""):
         c.execute("INSERT INTO events(task,event,detail,created) VALUES(?,?,?,?)", (ident, event, detail, utc()))
 
-    def _decode(self, row, private=False):
+    def _decode(self, row, private=False, now=None):
         if row is None:
             raise ValueError("Task not found")
         result = dict(row)
+        # Reads should expose an expired lease without taking a write lock.
+        # The next write still records the durable expiry event via _expire.
+        if result['status'] == 'running' and result['lease'] is not None and result['lease'] < (time.time() if now is None else now):
+            result['status'] = 'blocked'
         result["spec"] = json.loads(result["spec"])
         result["result"] = json.loads(result["result"]) if result["result"] else None
         if not private:
@@ -340,10 +344,13 @@ class Hive:
             return self._decode(c.execute("SELECT * FROM tasks WHERE id=?", (ident,)).fetchone())
 
     def list_tasks(self, status="", limit=25):
+        now = time.time()
         with self.connect() as c:
-            rows = c.execute("SELECT * FROM tasks WHERE (?='' OR status=?) ORDER BY created DESC,id LIMIT ?",
-                             (status, status, max(1, min(limit, 50))))
-            return [{k: v for k, v in self._decode(row).items() if k not in {"result", "spec"}} |
+            rows = c.execute("""SELECT * FROM tasks WHERE (?='' OR
+                CASE WHEN status='running' AND lease < ? THEN 'blocked' ELSE status END=?)
+                ORDER BY created DESC,id LIMIT ?""",
+                             (status, now, status, max(1, min(limit, 50))))
+            return [{k: v for k, v in self._decode(row, now=now).items() if k not in {"result", "spec"}} |
                     {"title": json.loads(row["spec"])["title"], "project": json.loads(row["spec"])["project"]}
                     for row in rows]
 

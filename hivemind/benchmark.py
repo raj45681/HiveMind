@@ -25,8 +25,9 @@ async def run(root, distractors=200, semantic=False):
     if not 0 <= distractors <= 2000:
         raise ValueError("Benchmark distractors must be between 0 and 2000")
     from . import semantic as semantic_module
-    if semantic and not semantic_module.ready(root):
-        raise ValueError("Local semantic model is not installed; run semantic-setup or omit --semantic")
+    semantic_health = semantic_module.health(root) if semantic else None
+    if semantic and semantic_health['status'] != 'ready':
+        raise ValueError(f"Local semantic model is {semantic_health['status']}: {semantic_health['detail']}")
     from .server import build_server
 
     with tempfile.TemporaryDirectory(prefix="hivemind-retrieval-") as tmp, ExitStack() as stack:
@@ -56,6 +57,8 @@ async def run(root, distractors=200, semantic=False):
             ("exact", "token refresh lock", "alpha", TARGET),
             ("paraphrase", "simultaneous sign-in secret replacement", "alpha", TARGET),
             ("unrelated", "volcanic marmalade", "alpha", None),
+            ("unrelated_domain", "How to repair a leaking bathroom faucet?", "alpha", None),
+            ("unrelated_near", "unrelated project accounting system", "alpha", None),
             ("wrong_project", "chromatic elephant cache", "alpha", None),
         ]
         search_results, search_times = [], []
@@ -65,9 +68,7 @@ async def run(root, distractors=200, semantic=False):
             elapsed = (time.perf_counter() - start) * 1000
             paths = [item["path"] for item in found]
             search_times.append(elapsed)
-            hit = (expected in paths if expected else
-                   all(not path.startswith("03-Projects/beta/") for path in paths)
-                   if label == "wrong_project" else not paths)
+            hit = expected in paths if expected else not paths
             search_results.append({"case": label, "query": query, "expected": expected,
                                    "hit": hit,
                                    "returned": paths, "latency_ms": round(elapsed, 2),
@@ -91,12 +92,13 @@ async def run(root, distractors=200, semantic=False):
                                                        ensure_ascii=False).encode("utf-8"))}
         return {"fixture": "disposable synthetic vault", "mode": "local-semantic" if semantic else "lexical",
                 "distractors": distractors, "paid_model_calls": 0,
+                "semantic_health": semantic_health,
                 "search": {"cases": search_results,
                            "target_hit_rate": sum(row["hit"] for row in search_results[:2]) / 2,
-                           "unrelated_false_hits": len(search_results[2]["returned"]),
+                           "unrelated_false_hits": sum(len(row["returned"]) for row in search_results if row["case"].startswith("unrelated")),
                            "wrong_project_leaks": sum(path.startswith("03-Projects/beta/")
-                                                      for path in search_results[3]["returned"]),
-                           "wrong_project_irrelevant_results": len(search_results[3]["returned"]),
+                                                      for path in search_results[-1]["returned"]),
+                           "wrong_project_irrelevant_results": len(search_results[-1]["returned"]),
                            "latency_ms": _milliseconds(search_times)},
                 "context": {"budgets": context_results, "latency_ms": _milliseconds(context_times)},
                 "tool_schemas": schemas}

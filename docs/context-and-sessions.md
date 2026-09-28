@@ -40,6 +40,8 @@ summaries, and may skip intervening content. Read the original for nuance.
 Search combines SQLite lexical relevance with bounded boosts for the current
 project and file modification freshness. Use `memory_search(..., project="myapp")`
 to exclude other projects' `03-Projects` notes while retaining shared solutions.
+Generated task, dashboard and session views are excluded from ordinary search;
+request structured handoffs explicitly with `include_handoffs=true`.
 An unscoped search still searches all projects. Candidate tastes and archives
 remain excluded by default. Freshness uses file timestamps, not proof that a
 solution is still correct. Existing notes are never rewritten by retrieval.
@@ -75,7 +77,8 @@ checkpoints without a fingerprint, removed worktrees, unavailable Git, and dirty
 submodules are reported as unverifiable rather than silently treated as current.
 The check is local and requires no model call. It is a point-in-time observation,
 not a lock against another process editing the repo immediately afterward.
-When the latest session has only its revision-0 start placeholder,
+When the latest session has only its start placeholder, including after a
+wrapper-only interruption or `needs_handoff` checkpoint,
 `session_resume(project)` also returns `previous_handoff`: the last substantive
 checkpoint from a different session, with its own fresh Git-drift status. The
 active session remains in `session`; an explicit session ID returns only that

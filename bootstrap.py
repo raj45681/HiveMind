@@ -52,13 +52,6 @@ def main():
     args = parser.parse_args()
     if sys.version_info < (3, 11):
         raise ValueError("Install Python 3.11 or newer, then run this command again")
-    config = ROOT / "hive.local.json"
-    first_setup = not config.exists()
-    existing = json.loads(config.read_text(encoding="utf-8-sig")) if not first_setup else {}
-    from hivemind.onboarding import choose_setup
-    options = choose_setup(args, existing, first_setup)
-    if options["personalize"] and not args.dry_run and not sys.stdin.isatty():
-        raise ValueError("Personalization needs an interactive terminal; rerun without --personalize in automation")
     target = ROOT / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     if not target.exists():
         if args.dry_run:
@@ -66,6 +59,17 @@ def main():
         print("Preparing the local Python environment...", flush=True)
         venv.EnvBuilder(with_pip=True).create(ROOT / ".venv")
     ensure_bridge_dependencies(target, args.dry_run)
+    # The system Python that launched a fresh install cannot import packages
+    # installed into the child venv. Continue the entire guided flow there.
+    if Path(sys.prefix).resolve() != (ROOT / ".venv").resolve():
+        return subprocess.run([str(target), str(ROOT / "bootstrap.py"), *sys.argv[1:]]).returncode
+    config = ROOT / "hive.local.json"
+    first_setup = not config.exists()
+    existing = json.loads(config.read_text(encoding="utf-8-sig")) if not first_setup else {}
+    from hivemind.onboarding import choose_setup
+    options = choose_setup(args, existing, first_setup)
+    if options["personalize"] and not args.dry_run and not sys.stdin.isatty():
+        raise ValueError("Personalization needs an interactive terminal; rerun without --personalize in automation")
     if not args.dry_run:
         from hivemind.seed import seed_vault
         seed_vault(ROOT)

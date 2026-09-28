@@ -32,7 +32,9 @@ device**, the machine holding the authoritative vault:
 D:\HiveMind\.venv\Scripts\python.exe D:\HiveMind\hive.py semantic-setup
 ```
 
-Check `hive.py doctor` for `semantic_memory.installed: true`. Restart an active
+Check `hive.py doctor` for `semantic_memory.status: "ready"`. Doctor runs a bounded
+offline embedding probe; a missing model cache reports `degraded` with a reason.
+Rerun setup with `--with-semantic` to repair a selected model. Restart an active
 agent session to load updated server code. Once the model is installed, every
 enrolled project uses it automatically; agent instructions do not change.
 
@@ -55,11 +57,14 @@ never rewritten by search. Project scoping is enforced for both keyword and
 semantic matches; candidates and archives remain excluded by default.
 
 The semantic index covers durable memory, decisions, and project notes. Generated
-task and session views are searched by keywords and supplied separately in the
-current session brief. Only the first 48 passages of a very long note are embedded;
+task, dashboard and session views are excluded from ordinary search. Structured
+handoffs are available with `include_handoffs=true` and the latest session is
+supplied separately in the current session brief. Only the first 48 passages of a very long note are embedded;
 keyword search can still find later text. The model is English-focused, so
 cross-language recall may be weaker. An absent or broken model falls back to
-keyword search; a failure detail is saved in `runtime/semantic-last-error.log`.
+keyword search; a failure detail is saved in `runtime/semantic-last-error.log`
+and a context brief reports a retrieval warning. Similarity is heuristic; weak
+or ambiguous semantic matches may be withheld, so exact keyword search remains useful.
 
 You can run both optional features together:
 

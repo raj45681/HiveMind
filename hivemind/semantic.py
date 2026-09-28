@@ -17,11 +17,25 @@ def interpreter(root):
 
 
 def ready(root):
+    """Cheap configuration check; use health() to prove offline operation."""
     marker = Path(root) / "runtime" / "tools" / "semantic-ready.json"
     try:
         return interpreter(root).is_file() and json.loads(marker.read_text()) == {"model": MODEL, "version": VERSION}
     except (OSError, ValueError):
         return False
+
+
+def health(root):
+    """Prove the configured model can embed offline, not just that a marker exists."""
+    if not ready(root):
+        return {"status": "not_installed", "model": MODEL,
+                "detail": "Local semantic environment or ready marker is missing"}
+    try:
+        _embed(root, ["offline semantic health check"])
+    except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as exc:
+        return {"status": "degraded", "model": MODEL,
+                "detail": f"Offline model probe failed ({type(exc).__name__}): {str(exc)[-180:]}"}
+    return {"status": "ready", "model": MODEL, "detail": "Offline embedding succeeded"}
 
 
 def _embed(root, texts, download=False):
@@ -58,6 +72,7 @@ def setup(root):
     if check.returncode:
         subprocess.run([str(python), "-m", "pip", "install", VERSION], check=True)
     _embed(root, ["local semantic memory"], download=True)
+    _embed(root, ["offline semantic memory"], download=False)
     marker = root / "runtime" / "tools" / "semantic-ready.json"
     marker.write_text(json.dumps({"model": MODEL, "version": VERSION}), encoding="utf-8")
     return {"installed": True, "model": MODEL, "scope": "local only", "note": "Markdown remains authoritative; the vector index rebuilds automatically."}
@@ -99,8 +114,11 @@ def _eligible(path, project, archive):
     if (path.startswith("01-Memory/Candidates/") or "/Review-Queue/" in path
             or (not archive and path.startswith("99-Archive/"))):
         return False
-    if project and path.lower().startswith("03-projects/"):
-        return path.lower().startswith(f"03-projects/{project.lower()}/")
+    scoped = path.lower()
+    if scoped.startswith("99-archive/"):
+        scoped = scoped[len("99-archive/"):]
+    if project and scoped.startswith("03-projects/"):
+        return scoped.startswith(f"03-projects/{project.lower()}/")
     return True
 
 

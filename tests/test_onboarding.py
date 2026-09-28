@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import venv
 from pathlib import Path
 from unittest.mock import patch
 from types import SimpleNamespace
@@ -22,6 +23,33 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class OnboardingTests(unittest.TestCase):
+    def test_dependency_free_parent_continues_in_prepared_environment(self):
+        with tempfile.TemporaryDirectory(prefix='Hive clean parent ') as tmp:
+            base = Path(tmp)
+            clean = base / 'clean-python'
+            venv.EnvBuilder(with_pip=False).create(clean)
+            parent = clean / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
+            self.assertNotEqual(subprocess.run([str(parent), '-c', 'import pydantic'],
+                                               capture_output=True).returncode, 0)
+            bundle, project = base / 'HiveMind', base / 'Project'
+            bundle.mkdir()
+            project.mkdir()
+            for name in ('bootstrap.py', 'hive.py', 'requirements.txt'):
+                shutil.copy2(ROOT / name, bundle / name)
+            shutil.copytree(ROOT / 'hivemind', bundle / 'hivemind',
+                            ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+            shutil.copytree(ROOT / 'templates/vault', bundle / 'templates/vault')
+            try:
+                (bundle / '.venv').symlink_to(ROOT / '.venv', target_is_directory=True)
+            except OSError:
+                self.skipTest('Local virtualenv symlinks are unavailable')
+            result = subprocess.run([str(parent), str(bundle / 'bootstrap.py'), str(project),
+                                     '--no-prompt', '--skip-register'], stdin=subprocess.DEVNULL,
+                                    capture_output=True, text=True, timeout=90)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn('MCP bridge: ready', result.stdout)
+            self.assertTrue((project / 'AGENTS.md').is_file())
+
     def test_bridge_reconciles_pin_even_when_imports_work(self):
         mismatch = {"ok": False, "mismatched": {"mcp": {"required": "1.30.0", "installed": "1.29.0"}}}
         matching = {"ok": True, "mismatched": {}}
@@ -126,12 +154,25 @@ class OnboardingTests(unittest.TestCase):
                 subprocess.CompletedProcess([], 0, '{"installed":true}', ""),
                 subprocess.CompletedProcess([], 0, '{"status":"unavailable","reason":"Graphify dependency unavailable"}', ""),
             ])
-            with patch("hivemind.semantic.ready", return_value=False), \
+            with patch("hivemind.semantic.health", side_effect=[
+                    {"status": "not_installed", "detail": "missing"},
+                    {"status": "ready", "detail": "offline probe passed"}]), \
                     patch("hivemind.onboarding.subprocess.run", side_effect=lambda *a, **k: next(results)):
                 extras = setup_extras(root, sys.executable, "app", {"semantic": True, "graphify": True})
             self.assertEqual(extras["Semantic"]["status"], "ready")
             self.assertEqual(extras["Graphify"]["status"], "needs-action")
             self.assertIn("dependency unavailable", extras["Graphify"]["detail"])
+
+    def test_semantic_setup_cannot_claim_ready_without_offline_probe(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch('hivemind.semantic.health', side_effect=[
+                    {'status': 'degraded', 'detail': 'model cache missing'},
+                    {'status': 'degraded', 'detail': 'offline model still missing'}]), \
+                    patch('hivemind.onboarding.subprocess.run', return_value=subprocess.CompletedProcess(
+                        [], 0, '{"installed":true}', '')):
+                result = setup_extras(tmp, sys.executable, 'app', {'semantic': True, 'graphify': False})
+            self.assertEqual(result['Semantic']['status'], 'needs-action')
+            self.assertIn('offline model still missing', result['Semantic']['detail'])
 
     @unittest.skipUnless(os.name == "nt", "CMD quick start")
     def test_documented_one_liner_handles_fresh_and_existing_install(self):

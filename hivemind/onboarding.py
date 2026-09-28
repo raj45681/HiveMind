@@ -59,21 +59,23 @@ def setup_extras(root, python, project, options):
     root = Path(root).resolve()
     extras = {}
     if options["semantic"]:
-        from .semantic import ready as semantic_ready
-        if semantic_ready(root):
-            extras["Semantic"] = {"status": "ready", "detail": "local model already available"}
+        from .semantic import health as semantic_health
+        initial_health = semantic_health(root)
+        if initial_health["status"] == "ready":
+            extras["Semantic"] = {"status": "ready", "detail": "offline model probe passed"}
         else:
-            print("Preparing local semantic recall; first setup downloads an isolated model...", flush=True)
+            print("Preparing local semantic recall; this may download the isolated model...", flush=True)
             try:
                 result = subprocess.run([str(python), str(root / "hive.py"), "semantic-setup"],
                                         capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=900)
                 payload = json.loads(result.stdout) if result.returncode == 0 else {}
                 if not isinstance(payload, dict):
                     raise ValueError("Semantic setup returned an unexpected result")
-                if result.returncode == 0 and payload.get("installed"):
-                    extras["Semantic"] = {"status": "ready", "detail": "local model installed"}
+                verified = semantic_health(root) if result.returncode == 0 and payload.get("installed") else initial_health
+                if result.returncode == 0 and payload.get("installed") and verified["status"] == "ready":
+                    extras["Semantic"] = {"status": "ready", "detail": "offline model probe passed"}
                 else:
-                    detail = result.stderr.strip() or result.stdout.strip() or "Semantic setup did not confirm installation"
+                    detail = verified["detail"] if result.returncode == 0 else (result.stderr.strip() or result.stdout.strip() or "Semantic setup did not confirm installation")
                     extras["Semantic"] = {"status": "needs-action", "detail": detail[-300:]}
             except (OSError, subprocess.TimeoutExpired, ValueError) as exc:
                 extras["Semantic"] = {"status": "needs-action", "detail": str(exc)[-300:]}
