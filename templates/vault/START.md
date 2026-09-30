@@ -8,6 +8,7 @@ This is your private local memory folder. It is excluded from Git.
 - [[00-System/Agent-Roles|Agent roles]]
 - [[01-Memory/User/Preferences|Your preferences]]
 - [[Home|Task overview]] (generated after initialization)
+- [[Review|Memory review]] (preferences, checkpoint drafts, and procedures to check)
 
 Edit your shared style here. Keep project-specific choices in their project notes.
 Agents retrieve a small brief and save verified learning through the local MCP bridge.

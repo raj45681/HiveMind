@@ -151,7 +151,7 @@ structured checkpoints from their validated result without a second model call.
 ## Existing installations
 
 Pull the source update, rerun `hivemind.cmd` in each enrolled project, and restart
-existing agent sessions to discover the default 16 MCP tools (or eight in the
+existing agent sessions to discover the default 22 MCP tools (or eleven in the
 optional memory profile). Initialization adds the
 session tables without replacing tasks, messages or Markdown notes.
 

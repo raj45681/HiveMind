@@ -126,3 +126,34 @@ drafts are excluded from ordinary search and automatic context. Running it again
 for the same checkpoint preserves any edits to the staged draft. A checkpoint is
 agent-reported, so verify the source before converting a lesson into a procedure
 or a confirmed preference. This command does not promote anything by itself.
+
+## Review dashboard
+
+`Review.md` brings the existing local review workflows into one Obsidian page.
+Initialization and `hive.py export` generate the page and link it from `Home`.
+Refresh it directly when notes change:
+
+```cmd
+.venv\Scripts\python.exe hive.py review-dashboard
+.venv\Scripts\python.exe hive.py review-dashboard --project myapp --stale-days 90 --limit 25
+```
+
+On Linux use `.venv/bin/python`. The page links to inferred preferences awaiting
+approval, checkpoint drafts whose `Status` is `draft`, and procedures older than
+the chosen edit-age threshold. A project filter includes that project's notes
+plus shared candidates and procedures. Each section has a configurable display
+limit (1–100); totals and truncation are reported. Drafts that cannot be safely
+read are counted separately. Commands on the page use placeholders: read the note
+and its current revision before approving, rejecting, or archiving anything.
+
+After reviewing a staged checkpoint, change `Status: draft` to `Status: reviewed`
+in that draft and refresh the dashboard to remove it from the pending queue.
+This marks human review only; it does not verify the checkpoint or promote its
+claims into durable learning. Age alone does not make a procedure incorrect.
+Refreshing the page makes no model calls and changes no source notes or approvals.
+
+`Review.md` is a generated snapshot, so refreshes replace its content. If that
+filename already contains a personal note, dashboard generation refuses to
+overwrite it and `export` preserves it. Move the personal note if you want to use
+the generated page. Existing user-edited `START.md` notes are preserved; `Home`
+always provides the review link after export.

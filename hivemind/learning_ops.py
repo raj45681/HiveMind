@@ -27,11 +27,15 @@ def _candidate_path(hive, path):
     return target, name
 
 
-def candidate_inbox(hive, limit=25):
+def candidate_inbox(hive, limit=25, project=""):
+    validate_project(project)
     folder = hive.vault / "01-Memory" / "Candidates"
     items = []
     for path in folder.rglob("*.md") if folder.exists() else []:
         name = path.relative_to(hive.vault).as_posix()
+        scope = name.split("/")[2] if len(name.split("/")) > 3 else ""
+        if project and scope.casefold() not in {project.casefold(), "cross-project"}:
+            continue
         try:
             raw = hive.note_path(name).read_bytes()
             data = _fields(raw.decode("utf-8"))
@@ -156,7 +160,7 @@ def procedure_used(hive, path, expected_revision, source, evidence):
     return {"path": name, "revision": expected_revision, "recorded": True}
 
 
-def procedure_report(hive, project="", stale_days=180, limit=50):
+def procedure_report(hive, project="", stale_days=180, limit=50, stale_only=False):
     validate_project(project)
     if not 1 <= stale_days <= 3650:
         raise ValueError("Stale days must be 1-3650")
@@ -173,8 +177,14 @@ def procedure_report(hive, project="", stale_days=180, limit=50):
     records, duplicates, fingerprints = [], [], {}
     for path in sorted(paths):
         name = path.relative_to(hive.vault).as_posix()
-        raw = path.read_bytes()
-        body = raw.decode("utf-8")
+        try:
+            path = hive.note_path(name)
+            if path.stat().st_size > 512_000:
+                continue
+            raw = path.read_bytes()
+            body = raw.decode("utf-8")
+        except (OSError, UnicodeError, ValueError):
+            continue
         section = body.split("## Steps", 1)[-1].split("Applicability:", 1)[0]
         fingerprint = hashlib.sha256(re.sub(r"\s+", " ", section.strip().lower()).encode()).hexdigest()
         if section.strip() and fingerprint in fingerprints:
@@ -187,10 +197,12 @@ def procedure_report(hive, project="", stale_days=180, limit=50):
                 "last_used": usage.get(name, {}).get("last_used"),
                 "stale": days >= stale_days}
         records.append(item)
+    stale_count = sum(item["stale"] for item in records)
+    displayed = [item for item in records if item["stale"]] if stale_only else records
     cap = max(1, min(limit, 100))
     return {"project": project or None, "procedure_count": len(records), "stale_days": stale_days,
-            "procedures": records[:cap], "duplicates": duplicates[:cap],
-            "truncated": len(records) > cap or len(duplicates) > cap, "read_only": True,
+            "stale_count": stale_count, "procedures": displayed[:cap], "duplicates": duplicates[:cap],
+            "truncated": len(displayed) > cap or len(duplicates) > cap, "read_only": True,
             "note": "Uses are explicit verified application records; unrecorded applications are unknown. Duplicates mean identical normalized steps only."}
 
 

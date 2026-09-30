@@ -21,14 +21,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class MCPTests(unittest.IsolatedAsyncioTestCase):
-    async def test_memory_profile_exposes_only_eight_memory_and_session_tools(self):
+    async def test_memory_profile_exposes_memory_workflows_without_coordination_tools(self):
         with tempfile.TemporaryDirectory() as tmp:
             full = await build_server(tmp).list_tools()
             memory = await build_server(tmp, tool_profile="memory").list_tools()
             self.assertEqual({tool.name for tool in memory}, {
                 "hive_context", "memory_search", "note_read", "memory_write", "memory_learn",
-                "session_start", "session_checkpoint", "session_resume"})
-            self.assertEqual(len(full), 16)
+                "session_start", "session_checkpoint", "session_resume",
+                "memory_relate", "memory_consolidate", "learning_review"})
+            self.assertEqual(len(full), 22)
             full_bytes = len(json.dumps([tool.model_dump(mode="json") for tool in full]))
             memory_bytes = len(json.dumps([tool.model_dump(mode="json") for tool in memory]))
             self.assertLess(memory_bytes, full_bytes * .65)
@@ -92,10 +93,10 @@ class MCPTests(unittest.IsolatedAsyncioTestCase):
                     await client.initialize()
                     tools = {t.name: t for t in (await client.list_tools()).tools}
                     read_only = {"hive_context", "memory_search", "session_resume", "note_read",
-                                 "task_get", "task_list", "message_inbox"}
-                    additive = {"session_start", "task_create", "message_send"}
+                                 "task_get", "task_list", "message_inbox", "goal_status"}
+                    additive = {"session_start", "task_create", "message_send", "memory_consolidate", "goal_create"}
                     mutating = {"session_checkpoint", "memory_write", "memory_learn",
-                                "task_claim", "task_heartbeat", "task_finish"}
+                                "task_claim", "task_heartbeat", "task_finish", "memory_relate", "learning_review", "goal_control"}
                     idempotent = {"session_checkpoint", "memory_write", "memory_learn", "task_finish"}
                     self.assertEqual(set(tools), read_only | additive | mutating)
                     for name, tool in tools.items():

@@ -1,0 +1,42 @@
+{
+  "key": "authentication-handoff",
+  "title": "Improve authentication handoffs",
+  "objective": "Inspect authentication handling and improve its documented handoff to agents.",
+  "project": "hivemind",
+  "max_tasks": 3,
+  "max_seconds": 1800,
+  "max_parallel": 1,
+  "tasks": [
+    {
+      "key": "inspect",
+      "title": "Inspect authentication handling",
+      "objective": "Inspect authentication boundaries and identify concrete documentation gaps.",
+      "agent": "codex",
+      "access": "read",
+      "files": ["hivemind/server.py", "hivemind/transport.py"],
+      "acceptance": ["Cite relevant source and existing memory"],
+      "max_seconds": 300
+    },
+    {
+      "key": "implement",
+      "title": "Improve authentication handoff documentation",
+      "objective": "Apply the reviewed documentation changes and verify the examples.",
+      "agent": "codex",
+      "access": "write",
+      "files": ["docs/other-harnesses.md"],
+      "depends_on": ["inspect"],
+      "acceptance": ["Examples match current authentication behavior"],
+      "max_seconds": 900
+    },
+    {
+      "key": "review",
+      "title": "Review the integrated documentation",
+      "objective": "Review the integrated changes and report remaining issues.",
+      "agent": "codex",
+      "access": "read",
+      "depends_on": ["implement"],
+      "acceptance": ["Inspect changed examples and cite evidence"],
+      "max_seconds": 300
+    }
+  ]
+}

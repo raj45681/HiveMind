@@ -128,6 +128,7 @@ def recall(hive, query, project="", archive=False, limit=80):
         return []
     with hive.connect() as c:
         _schema(c)
+        from .memory import eligible, metadata
         notes = {r["path"]: r for r in c.execute("SELECT path,title,content,revision FROM notes")
                  if r["path"].startswith(("01-Memory/", "02-Decisions/", "03-Projects/", "99-Archive/"))
                  and not r["path"].startswith("01-Memory/Candidates/")
@@ -157,7 +158,8 @@ def recall(hive, query, project="", archive=False, limit=80):
     best = {}
     for row in rows:
         path = row["path"]
-        if path not in notes or notes[path]["revision"] != row["revision"] or not _eligible(path, project, archive):
+        if (path not in notes or notes[path]["revision"] != row["revision"] or not _eligible(path, project, archive)
+                or not eligible(path, metadata(path, notes[path]['content']), project, archive)):
             continue
         vector = array("f")
         vector.frombytes(row["vector"])

@@ -58,6 +58,13 @@ when your new question uses different words. It joins keyword search inside the
 existing memory tools; the vault remains plain Markdown.
 [Explore semantic memory →](docs/semantic-memory.md)
 
+**Current knowledge for the task at hand:** link memory to affected files, mark old
+decisions replaced, and flag competing current claims. Task briefs include relevant
+file-linked notes and dependency evidence. Completed work produces reviewable lessons,
+and consolidation proposals combine related learning while retaining source history.
+Goal plans connect tasks into bounded dependency graphs with explicit agent execution.
+[Explore core memory and goal workflows →](docs/core-workflows.md)
+
 > **Local memory, normal agent accounts.** HiveMind needs no hosting subscription
 > or embedding service. Semantic recall is an optional local model downloaded once.
 > Your AI agents still use their own services and account allowances. Retrieved
@@ -169,10 +176,10 @@ enrolled project** through the existing `memory_search` and `hive_context` tools
 No agent skill or extra MCP tool is needed. Combine both flags if you want
 Graphify as well. [Setup, privacy and limits →](docs/semantic-memory.md)
 
-Use `--tool-profile memory` to expose only eight memory and session MCP tools on
-this device. The default `full` profile exposes 16 core tools, including task
-claims and messages, plus optional Graphify. The memory profile reduces the
-serialized tool schemas by about 45% in the included synthetic benchmark; exact
+Use `--tool-profile memory` to expose eleven memory, review, and session MCP tools on
+this device. The default `full` profile exposes 22 core tools, including task
+claims, goals, and messages, plus optional Graphify. The memory profile reduces
+serialized tool schemas; `hive.py benchmark` reports the current sizes, while
 prompt-token savings depend on the client. Override one generic client's profile
 with `hive.py client-info PROJECT --profile memory`, or run the bridge with
 `hive.py serve --profile memory`. Restart clients after changing the profile.
@@ -267,6 +274,14 @@ vault size. `--semantic` reuses an installed local model cache without a downloa
 or paid agent call. The fixture does not measure your private vault or guarantee
 a vendor client's behavior.
 
+The benchmark includes 17 labelled cases: exact queries, paraphrases, ambiguous
+terms, conflicting archived advice, pending preferences, review drafts, unrelated
+queries, and literal project boundaries. It reports rank and incremental indexing
+work as well as retrieval results. Add `--check` to return a nonzero exit code on
+required retrieval, isolation, indexing, or context-budget regressions. Core mode
+reports paraphrase misses without failing; `--semantic --check` requires those
+paraphrases to be found too.
+
 ## How it works
 
 ![Cats coordinate an owned task while ants carry a checkpoint and the next step](docs/assets/hivemind-coordinate.gif)
@@ -308,21 +323,23 @@ reading the returned text still consumes context. Inferred tastes stay separate
 from confirmed preferences. Current instructions always take precedence over memory.
 
 Candidate review, checkpoint review, procedure maintenance, history, audit and older
-handoff search are **on demand**. They do not expand the default brief or add MCP
-tools. Agents can save verified procedures through the existing `memory_learn` tool;
+handoff search are **on demand**. Core memory relationships and learning proposals
+have dedicated MCP tools. Agents can save verified procedures through `memory_learn`;
 inferred preferences need explicit local approval before they enter the profile.
 [Use local memory operations →](docs/local-memory-operations.md)
 
-### One server, up to 17 tools
+### One server, up to 23 tools
 
-HiveMind registers **one MCP server** with each agent. That server exposes 16 core
+HiveMind registers **one MCP server** with each agent. That server exposes 22 core
 tools, plus `code_query` on devices with Graphify-enabled projects:
 
 | Purpose | Tools | Count |
 | :--- | :--- | ---: |
 | Memory | `hive_context`, `memory_search`, `note_read`, `memory_write`, `memory_learn` | 5 |
+| Memory lifecycle | `memory_relate`, `memory_consolidate`, `learning_review` | 3 |
 | Sessions | `session_start`, `session_checkpoint`, `session_resume` | 3 |
 | Tasks | `task_create`, `task_get`, `task_list`, `task_claim`, `task_heartbeat`, `task_finish` | 6 |
+| Goals | `goal_create`, `goal_status`, `goal_control` | 3 |
 | Messages | `message_send`, `message_inbox` | 2 |
 | Optional code graph | `code_query` | 1 |
 
@@ -338,7 +355,7 @@ The local authority's `tools/list` response explicitly classifies retries for ev
 | `idempotentHint` | Tools | Meaning |
 | :--- | :--- | :--- |
 | `true` | `session_checkpoint`, `memory_write`, `memory_learn`, `task_finish` | Repeating the same arguments cannot add another persisted change. `memory_learn` or `task_finish` may still return a conflict or ownership error; read the saved note or task to confirm the first result. |
-| `false` | `session_start`, `task_create`, `task_claim`, `task_heartbeat`, `message_send`, optional `code_query` | A repeat may create another record, claim different work, extend a lease, or refresh an index. `session_start` is retry-safe only when the caller supplies a stable `session_id`. |
+| `false` | `session_start`, `task_create`, `task_claim`, `task_heartbeat`, `message_send`, `memory_relate`, `memory_consolidate`, `learning_review`, `goal_create`, `goal_control`, optional `code_query` | A repeat may add or change state, or return a revision conflict. Stable keys prevent duplicate goal plans and proposals; inspect the saved result before retrying a mutation. `session_start` is retry-safe only when the caller supplies a stable `session_id`. |
 
 Read-only tools leave `idempotentHint` unset because the hint only applies to
 environment-changing tools. An idempotency hint describes repeated effects, not
@@ -501,10 +518,34 @@ temporary fixtures and no paid model calls.
 The protocol suite verifies tool behavior, not a model's instruction compliance.
 Real vendor inference and physical Linux behavior need separate smoke tests.
 
+GitHub Actions runs the unit suite, `doctor`, the MCP acceptance check, and the
+retrieval regression benchmark on Windows and Linux with Python 3.11, 3.12, and
+3.13. Each job uploads its benchmark JSON. A manual workflow run can also enable
+the real semantic-model tests and benchmark; this downloads or reuses the local
+model cache and makes no paid inference calls.
+
+`hive.py doctor` keeps its JSON output for scripts and exits nonzero when a
+required dependency or coordinator check fails. Use `hive.py doctor --human` for
+a readable summary with repair commands. Missing optional features do not fail
+core health checks; degraded optional features appear as warnings.
+
+Search checks file metadata each time and reads changed notes. Full content
+reconciliation occurs on the next scan after five minutes, or immediately with
+`hive.py index`. This preserves direct Obsidian edits, deletions, and note history
+without rereading an unchanged vault on every query. Filesystem metadata is a
+change signal, not proof of identical content; run `index` after tools that
+preserve every timestamp and file identity.
+
+Open **`Review`** in the Obsidian vault for pending preference approvals,
+checkpoint drafts, and procedures to check. Refresh it with
+`hive.py review-dashboard` or `hive.py export`.
+[Review workflow and project filters →](docs/local-memory-operations.md#review-dashboard)
+
 ## Documentation
 
 | Guide | Read it for |
 | :--- | :--- |
+| [Core memory and goal workflows](docs/core-workflows.md) | Current decisions, task-aware context, consolidation, outcome learning, and bounded goal execution |
 | [Budgeted context & session handoffs](docs/context-and-sessions.md) | Smaller briefs, checkpoints, resume, and optional CLI exit capture |
 | [Optional local code graphs](docs/code-graphs.md) | Graphify setup, bounded queries, supported files and fallback behavior |
 | [Optional semantic memory](docs/semantic-memory.md) | Paraphrase recall, one-time model setup, local index and limits |

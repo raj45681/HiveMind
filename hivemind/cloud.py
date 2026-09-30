@@ -143,10 +143,16 @@ class Routed:
             path, content = learning_note(**args)
             return await self.call("memory_write", path=path, content=content, expected_revision=revision)
         if self.cloud and tool in MEMORY_TOOLS:
+            if tool == 'hive_context' and (args.get('task_id') or args.get('files')):
+                raise ValueError('Task-aware memory requires the local authority; legacy cloud memory is unsupported')
             if tool == 'hive_context':
+                args.pop('task_id', None)
+                args.pop('files', None)
                 if args.pop('budget_tokens', None) is not None:
                     raise ValueError('Budgeted context requires the local HiveMind backend or an upgraded MCP authority; legacy cloud memory does not support it')
             if tool == 'memory_search' and args.pop('project', ''):
                 raise ValueError('Project-scoped search requires the local backend or an upgraded MCP authority')
             return await self.cloud.call(tool, **args)
+        if self.cloud and tool in {'memory_relate', 'memory_consolidate', 'learning_review'}:
+            raise ValueError('Core memory workflows require the local authority; legacy cloud memory is unsupported')
         return await self.authority.call(tool, **args)

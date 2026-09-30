@@ -21,13 +21,15 @@ def parser():
     p.add_argument("--root", type=Path, default=ROOT)
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("init", help="Initialize local coordinator and note index")
-    sub.add_parser("doctor", help="Check local tools and coordinator access without model usage")
+    s = sub.add_parser("doctor", help="Check local tools and coordinator access without model usage")
+    s.add_argument("--human", action="store_true", help="Show a readable summary and repair commands instead of JSON")
     sub.add_parser("verify", help="Run a disposable end-to-end MCP memory and handoff check without model usage")
     s = sub.add_parser("benchmark", help="Measure retrieval and tool schema sizes in a disposable synthetic vault")
     s.add_argument("--distractors", type=int, default=200, help="Synthetic background notes (0-2000)")
     s.add_argument("--semantic", action="store_true", help="Reuse an installed local model cache; never download")
+    s.add_argument("--check", action="store_true", help="Exit nonzero when required retrieval, scope or budget checks fail")
     sub.add_parser("status", help="List tasks from the selected coordinator")
-    sub.add_parser("index", help="Refresh the local Markdown search index")
+    sub.add_parser("index", help="Fully reconcile the local Markdown search index")
     sub.add_parser("semantic-setup", help="Install the optional local semantic memory model")
     sub.add_parser("export", help="Refresh generated Obsidian task views")
     s = sub.add_parser("code-setup", help="Install optional isolated Graphify and index an enrolled project")
@@ -44,6 +46,47 @@ def parser():
     s.add_argument("--agent", default="generic", help="Lowercase harness ID, e.g. codex or cursor")
     s.add_argument("--query", default="")
     s.add_argument("--budget", type=int)
+    s.add_argument('--task', default='', help='Include task files, dependency results and linked memory')
+    s.add_argument('--file', action='append', default=[], help='Project-relative affected file; repeat for more files')
+    s = sub.add_parser('learn', help='Save structured scoped learning from a JSON file')
+    s.add_argument('file', type=Path)
+    s = sub.add_parser('memory-relate', help='Record replacement or conflict between current memory notes')
+    s.add_argument('relation', choices=('supersedes', 'conflicts', 'resolve'))
+    s.add_argument('path')
+    s.add_argument('related')
+    s.add_argument('--revision', required=True)
+    s.add_argument('--related-revision', required=True)
+    s.add_argument('--source', required=True)
+    s = sub.add_parser('consolidate', help='Find duplicate learned notes and optionally stage a merge proposal')
+    s.add_argument('project', nargs='?', default='')
+    s.add_argument('--path', action='append', default=[])
+    s.add_argument('--summary', default='')
+    s.add_argument('--stage', action='store_true')
+    s = sub.add_parser('learning-review', help='Explicitly accept or reject an outcome/consolidation proposal')
+    s.add_argument('path')
+    s.add_argument('--revision', required=True)
+    decision = s.add_mutually_exclusive_group(required=True)
+    decision.add_argument('--accept', action='store_true')
+    decision.add_argument('--reject', action='store_true')
+    s.add_argument('--content-file', type=Path, help='Optional reviewer-authored replacement content')
+    s = sub.add_parser('goal-create', help='Save a reviewable goal plan from JSON; never starts agents')
+    s.add_argument('file', type=Path)
+    s = sub.add_parser('goal-show', help='Show a goal dependency graph and execution limits')
+    s.add_argument('goal')
+    for command in ('goal-activate', 'goal-integrated', 'goal-release'):
+        s = sub.add_parser(command, help='Review-controlled goal state change')
+        s.add_argument('goal')
+        s.add_argument('--revision', required=True, type=int)
+        if command == 'goal-integrated':
+            s.add_argument('--key', required=True)
+        if command != 'goal-activate':
+            s.add_argument('--source', required=True)
+    s = sub.add_parser('goal-run', help='Preview a goal or explicitly execute ready tasks within its limits')
+    s.add_argument('goal')
+    s.add_argument('--execute', action='store_true', help='Uses configured agent accounts')
+    s.add_argument('--max-tasks', type=int)
+    s.add_argument('--max-seconds', type=int)
+    s.add_argument('--max-parallel', type=int)
     s = sub.add_parser("context-budget", help="Set the default estimated-token budget (512-8192)")
     s.add_argument("tokens", type=int)
     s = sub.add_parser("session-start", help="Start a durable session without launching an agent")
@@ -89,6 +132,11 @@ def parser():
     s.add_argument("--project", default="")
     s.add_argument("--limit", type=int, default=50)
     s = sub.add_parser("candidate-inbox", help="List inferred preferences awaiting explicit review")
+    s.add_argument("--limit", type=int, default=25)
+    s.add_argument("--project", default="")
+    s = sub.add_parser("review-dashboard", help="Generate an Obsidian page for memory awaiting review")
+    s.add_argument("--project", default="")
+    s.add_argument("--stale-days", type=int, default=180)
     s.add_argument("--limit", type=int, default=25)
     for command in ("candidate-approve", "candidate-reject", "procedure-archive", "procedure-unarchive"):
         s = sub.add_parser(command, help="Revision-checked local memory review")
@@ -183,6 +231,14 @@ async def execute(args):
         from hivemind.benchmark import run
         return await run(root, args.distractors, args.semantic)
     url, token, config = connection(root)
+    if args.cmd == "doctor":
+        from hivemind.diagnostics import inspect
+        return await inspect(root, ROOT, url, token, config)
+    if args.cmd == 'goal-run':
+        if url:
+            raise ValueError('Run goal execution on the local task authority')
+        from hivemind.goals import run
+        return await run(Hive(root), args.goal, config, args.execute, args.max_tasks, args.max_seconds, args.max_parallel)
     if args.cmd == "client-info":
         from hivemind.context import validate_project
         from hivemind.sessions import project_path
@@ -208,7 +264,7 @@ async def execute(args):
                 "note": "Configure this stdio server in your client's MCP settings and make its project instructions load AGENTS.md. Restart the client, then call hive_context with this project ID. Client-specific trust and MCP prompts still apply."}
     if args.cmd in {"history", "diff", "restore", "memory-audit", "handoff-search",
                     "candidate-inbox", "candidate-approve", "candidate-reject", "procedure-report",
-                    "procedure-archive", "procedure-unarchive", "procedure-used", "review-checkpoint",
+                    "procedure-archive", "procedure-unarchive", "procedure-used", "review-checkpoint", "review-dashboard",
                     "recovery-enable", "recovery-disable", "recovery-list", "recovery-diff",
                     "recovery-restore", "recovery-undo", "recovery-prune"}:
         if url:
@@ -254,8 +310,11 @@ async def execute(args):
                 return recovery.undo_restore(hive, args.undo, args.expected_current)
             return recovery.prune(hive, args.project, args.keep, args.drop_undos)
         from hivemind import learning_ops
+        if args.cmd == "review-dashboard":
+            from hivemind.review import render
+            return render(hive, args.project, args.stale_days, args.limit)
         if args.cmd == "candidate-inbox":
-            return learning_ops.candidate_inbox(hive, args.limit)
+            return learning_ops.candidate_inbox(hive, args.limit, args.project)
         if args.cmd == "candidate-approve":
             return learning_ops.candidate_approve(hive, args.path, args.expected_revision)
         if args.cmd == "candidate-reject":
@@ -381,12 +440,30 @@ async def execute(args):
             save_config(root, config)
             hive.export()
             return hive.index()
-        return {"index": hive.index, "export": hive.export,
+        return {"index": lambda: hive.index(force=True), "export": hive.export,
                 "requeue": lambda: hive.requeue(args.task)}[args.cmd]()
     async with backend(root, url, token) as api:
+        if args.cmd == 'learn':
+            return await api.call('memory_learn', **json.loads(args.file.read_text(encoding='utf-8-sig')))
+        if args.cmd == 'memory-relate':
+            return await api.call('memory_relate', path=args.path, related=args.related, relation=args.relation,
+                                  expected_revision=args.revision, related_revision=args.related_revision, source=args.source)
+        if args.cmd == 'consolidate':
+            return await api.call('memory_consolidate', project=args.project, paths=args.path, summary=args.summary, stage=args.stage)
+        if args.cmd == 'learning-review':
+            content = args.content_file.read_text(encoding='utf-8') if args.content_file else ''
+            return await api.call('learning_review', path=args.path, expected_revision=args.revision, accept=args.accept, content=content)
+        if args.cmd == 'goal-create':
+            return await api.call('goal_create', spec=json.loads(args.file.read_text(encoding='utf-8-sig')))
+        if args.cmd == 'goal-show':
+            return await api.call('goal_status', ident=args.goal)
+        if args.cmd in {'goal-activate', 'goal-integrated', 'goal-release'}:
+            action = {'goal-activate': 'activate', 'goal-integrated': 'integrate', 'goal-release': 'release'}[args.cmd]
+            return await api.call('goal_control', ident=args.goal, action=action, expected_revision=args.revision,
+                                  key=getattr(args, 'key', ''), source=getattr(args, 'source', ''))
         if args.cmd == "context":
             return await api.call("hive_context", agent=args.agent, project=args.project,
-                                  query=args.query, budget_tokens=args.budget)
+                                  query=args.query, budget_tokens=args.budget, task_id=args.task, files=args.file)
         if args.cmd == "session-start":
             return await api.call("session_start", project=args.project, agent=args.agent, goal=args.goal)
         if args.cmd == "checkpoint":
@@ -397,24 +474,6 @@ async def execute(args):
         if args.cmd == "session-run":
             from hivemind.session_runner import run_session
             return await run_session(root, api, args.project, args.agent, args.agent_args, config)
-        if args.cmd == "doctor":
-            from hivemind.cloud import cloud_settings
-            from hivemind.code_index import installed
-            from hivemind.dependencies import local_dependency_status
-            from hivemind.semantic import health as semantic_health
-            semantic_status = semantic_health(root)
-            return {"coordinator": url or "local", "machine": config.get("machine", socket.gethostname()),
-                    "memory": cloud_settings(root)[0] or url or "local",
-                    "agents": {name: shutil.which(exe) for name, exe in {"codex": "codex", "grok": "grok", "antigravity": "agy"}.items()},
-                    "task_access": "ok" if isinstance(await api.call("task_list", limit=1), list) else "unexpected",
-                    "code_index": {"enabled_projects": config.get("graphify_projects", []),
-                                   "installed": installed(root) if config.get("graphify_projects") else False},
-                    "semantic_memory": {"installed": semantic_status["status"] == "ready",
-                                        "model": semantic_status["model"], "status": semantic_status["status"],
-                                        "detail": semantic_status["detail"], "authority": url or "local"},
-                    "bridge_dependencies": local_dependency_status(root / "requirements.txt"),
-                    "tool_profile": config.get("tool_profile", "full"),
-                    "model_calls": 0}
         if args.cmd == "status":
             return await api.call("task_list")
         if args.cmd == "search":
@@ -447,7 +506,10 @@ def main():
             server.run(transport="stdio")
         return
     result = asyncio.run(execute(args))
-    if args.cmd == "code-query":
+    if args.cmd == "doctor" and args.human:
+        from hivemind.diagnostics import human
+        print(human(result))
+    elif args.cmd == "code-query":
         from hivemind.code_index import compact
         print(compact(result))
     else:
@@ -455,6 +517,10 @@ def main():
     if args.cmd == "session-run" and result.get("exit_code"):
         sys.exit(1)
     if args.cmd == "verify" and not result["ok"]:
+        sys.exit(1)
+    if args.cmd == "doctor" and not result["ok"]:
+        sys.exit(1)
+    if args.cmd == "benchmark" and args.check and not result["ok"]:
         sys.exit(1)
 
 

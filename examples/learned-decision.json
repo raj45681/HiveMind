@@ -1,0 +1,11 @@
+{
+  "kind": "decision",
+  "key": "http-authentication",
+  "summary": "HTTP clients authenticate with bearer authorization before accessing coordinator operations.",
+  "source": "Reviewed implementation in hivemind/server.py",
+  "project": "hivemind",
+  "basis": "verified-result",
+  "topic": "authentication.http",
+  "claim": "bearer-authorization-required",
+  "files": ["hivemind/server.py"]
+}

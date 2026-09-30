@@ -4,12 +4,33 @@ import os
 import re
 import secrets
 import sqlite3
+import stat
 import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
 from .models import ROUTES, TaskResult, TaskSpec
+
+INDEX_RECHECK_SECONDS = 300
+
+
+def file_signature(info):
+    return json.dumps([info.st_size, info.st_mtime_ns, info.st_ctime_ns,
+                       info.st_dev, info.st_ino], separators=(",", ":"))
+
+
+def read_index_file(path):
+    # Do not cache metadata from a different revision while Obsidian is saving.
+    for _ in range(2):
+        before = path.stat()
+        if before.st_size > 512_000:
+            raise ValueError("Note is too large to index")
+        data = path.read_bytes()
+        after = path.stat()
+        if file_signature(before) == file_signature(after) and len(data) == after.st_size:
+            return data, after
+    raise OSError("Note changed while indexing; retry on the next scan")
 
 
 def utc():
@@ -69,6 +90,18 @@ class Hive:
                     path TEXT NOT NULL, revision TEXT NOT NULL, content BLOB NOT NULL,
                     recorded TEXT NOT NULL, PRIMARY KEY(path, revision));
                 CREATE INDEX IF NOT EXISTS note_versions_recent ON note_versions(path, recorded DESC);
+                CREATE TABLE IF NOT EXISTS note_files (
+                    path TEXT PRIMARY KEY, signature TEXT NOT NULL, revision TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS index_state (key TEXT PRIMARY KEY, value REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS memory_metadata (
+                    path TEXT PRIMARY KEY, revision TEXT NOT NULL, scope TEXT NOT NULL,
+                    state TEXT NOT NULL, topic TEXT NOT NULL, claim TEXT NOT NULL,
+                    files TEXT NOT NULL, replaces TEXT NOT NULL, conflicts TEXT NOT NULL, version TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS goals (
+                    id TEXT PRIMARY KEY, project TEXT NOT NULL, key TEXT NOT NULL, spec TEXT NOT NULL,
+                    status TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0, task_map TEXT NOT NULL DEFAULT '{}',
+                    integrated TEXT NOT NULL DEFAULT '{}', launches INTEGER NOT NULL DEFAULT 0,
+                    seconds REAL NOT NULL DEFAULT 0, runner TEXT, runner_until REAL, UNIQUE(project,key));
                 CREATE TABLE IF NOT EXISTS procedure_uses (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, revision TEXT NOT NULL,
                     source TEXT NOT NULL, evidence TEXT NOT NULL, used TEXT NOT NULL);
@@ -209,14 +242,20 @@ class Hive:
             self._index_note(c, target)
         return {"path": path, "revision": incoming_revision}
 
-    def _index_note(self, c, path):
-        data = path.read_bytes()
+    def _index_note(self, c, path, data=None, info=None):
+        if data is None:
+            data, info = read_index_file(path)
         raw = data.decode("utf-8")
         name = path.relative_to(self.vault).as_posix()
         self._remember_version(c, name, data)
         title = next((line[2:] for line in raw.splitlines() if line.startswith("# ")), path.stem)
         c.execute("DELETE FROM notes WHERE path=?", (name,))
-        c.execute("INSERT INTO notes VALUES (?,?,?,?)", (name, title, raw, hashlib.sha256(data).hexdigest()))
+        revision = hashlib.sha256(data).hexdigest()
+        c.execute("INSERT INTO notes VALUES (?,?,?,?)", (name, title, raw, revision))
+        c.execute("INSERT OR REPLACE INTO note_files VALUES (?,?,?)",
+                  (name, file_signature(info), revision))
+        from .memory import indexed
+        indexed(c, name, revision, raw)
 
     def _remember_version(self, c, name, data):
         if name.split("/", 1)[0] not in {"00-System", "01-Memory", "02-Decisions", "03-Projects"} or "/Sessions/" in name:
@@ -224,40 +263,73 @@ class Hive:
         c.execute("INSERT OR IGNORE INTO note_versions VALUES (?,?,?,?)",
                   (name, hashlib.sha256(data).hexdigest(), data, utc()))
 
-    def index(self):
-        count = 0
+    def index(self, force=False):
+        count = reads = updates = skipped = 0
+        now = time.time()
         with self.connect(write=True) as c:
             existing = {r["path"]: r["revision"] for r in c.execute("SELECT path,revision FROM notes")}
+            cached = {r["path"]: r for r in c.execute("SELECT * FROM note_files")}
+            last = c.execute("SELECT value FROM index_state WHERE key='full_check'").fetchone()
+            migrated = c.execute("SELECT value FROM index_state WHERE key='memory_metadata'").fetchone()
+            full = force or not migrated or last is None or now < last[0] or now - last[0] >= INDEX_RECHECK_SECONDS
             seen = set()
-            for path in self.vault.rglob("*.md"):
-                relative = path.relative_to(self.vault)
-                if any(part.startswith(".") for part in relative.parts):
-                    continue
-                try:
-                    path = self.note_path(relative.as_posix())
-                    if path.stat().st_size > 512_000:
+            # os.walk does not traverse directory symlinks. Resolve file symlinks
+            # explicitly; unchanged ordinary files need only one metadata check.
+            for folder, directories, files in os.walk(self.vault, followlinks=False):
+                directories[:] = [name for name in directories if not name.startswith(".")]
+                for filename in files:
+                    if filename.startswith(".") or not filename.endswith(".md"):
                         continue
-                    name = path.relative_to(self.vault).as_posix()
-                    seen.add(name)
-                    data = path.read_bytes()
-                    revision = hashlib.sha256(data).hexdigest()
-                    if not c.execute("SELECT 1 FROM note_versions WHERE path=? AND revision=?", (name, revision)).fetchone():
-                        # Existing installations may have an FTS copy but no version table yet.
+                    path = Path(folder) / filename
+                    try:
+                        info = path.lstat()
+                        if stat.S_ISLNK(info.st_mode):
+                            path = self.note_path(path.relative_to(self.vault).as_posix())
+                            info = path.stat()
+                        if not stat.S_ISREG(info.st_mode) or info.st_size > 512_000:
+                            skipped += 1
+                            continue
+                        name = path.relative_to(self.vault).as_posix()
+                        prior = cached.get(name)
+                        if (not full and prior and prior["revision"] == existing.get(name)
+                                and prior["signature"] == file_signature(info)):
+                            seen.add(name)
+                            count += 1
+                            continue
+                        path = self.note_path(name)
+                        data, info = read_index_file(path)
+                        data.decode("utf-8")  # Invalid notes must not retain searchable stale content.
+                        reads += 1
+                        revision = hashlib.sha256(data).hexdigest()
                         old = c.execute("SELECT content,revision FROM notes WHERE path=?", (name,)).fetchone()
                         if old:
                             old_data = old["content"].encode("utf-8")
                             if hashlib.sha256(old_data).hexdigest() == old["revision"]:
                                 self._remember_version(c, name, old_data)
-                    if existing.get(name) != revision:
-                        self._index_note(c, path)
-                    else:
-                        self._remember_version(c, name, data)
-                    count += 1
-                except (OSError, UnicodeError, ValueError):
-                    continue
-            for missing in existing.keys() - seen:
-                c.execute("DELETE FROM notes WHERE path=?", (missing,))
-        return {"indexed_notes": count}
+                        if existing.get(name) != revision:
+                            self._index_note(c, path, data, info)
+                            updates += 1
+                        else:
+                            self._remember_version(c, name, data)
+                            from .memory import indexed
+                            indexed(c, name, revision, data.decode("utf-8"))
+                            c.execute("INSERT OR REPLACE INTO note_files VALUES (?,?,?)",
+                                      (name, file_signature(info), revision))
+                        seen.add(name)
+                        count += 1
+                    except (OSError, UnicodeError, ValueError):
+                        skipped += 1
+            missing = existing.keys() - seen
+            for name in missing:
+                c.execute("DELETE FROM notes WHERE path=?", (name,))
+                c.execute("DELETE FROM memory_metadata WHERE path=?", (name,))
+            for name in cached.keys() - seen:
+                c.execute("DELETE FROM note_files WHERE path=?", (name,))
+            if full:
+                c.execute("INSERT OR REPLACE INTO index_state VALUES ('full_check',?)", (now,))
+                c.execute("INSERT OR REPLACE INTO index_state VALUES ('memory_metadata',1)")
+        return {"indexed_notes": count, "read_notes": reads, "updated_notes": updates,
+                "removed_notes": len(missing), "skipped_notes": skipped, "full_check": full}
 
     def search(self, query, limit=5, archive=False, project="", include_handoffs=False):
         from .context import search
@@ -282,9 +354,39 @@ class Hive:
         from .memory_ops import audit
         return audit(self, project, limit)
 
-    def context(self, agent="generic", project="", query="", budget_tokens=None):
+    def context(self, agent="generic", project="", query="", budget_tokens=None, task_id="", files=None):
         from .context import context
-        return context(self, agent, project, query, budget_tokens)
+        return context(self, agent, project, query, budget_tokens, task_id, files)
+
+    def memory_relate(self, **args):
+        from .memory import relate
+        return relate(self, **args)
+
+    def memory_consolidate(self, project, paths=None, summary='', stage=False):
+        from .proposals import consolidate
+        return consolidate(self, project, paths, summary, stage)
+
+    def learning_review(self, path, expected_revision, accept=False, content=''):
+        from .proposals import review
+        return review(self, path, expected_revision, accept, content)
+
+    def goal_create(self, spec):
+        from .goals import create
+        return create(self, spec)
+
+    def goal_status(self, ident):
+        from .goals import status
+        return status(self, ident)
+
+    def goal_control(self, ident, action, expected_revision, key='', source=''):
+        from .goals import activate, integrate, release
+        if action == 'activate':
+            return activate(self, ident, expected_revision)
+        if action == 'integrate':
+            return integrate(self, ident, key, expected_revision, source)
+        if action == 'release':
+            return release(self, ident, expected_revision, source)
+        raise ValueError('Unknown goal action')
 
     def session_start(self, project, agent, goal, session_id="", workspace=None):
         from .sessions import start
@@ -307,6 +409,8 @@ class Hive:
 
     def create_task(self, spec):
         spec = TaskSpec.model_validate(spec)
+        from .memory import file_paths
+        spec.files = file_paths(spec.files)
         if any(len(s) > 800 for s in spec.acceptance):
             raise ValueError("Keep each acceptance criterion below 800 characters")
         for path in spec.memory:
@@ -377,6 +481,9 @@ class Hive:
                 if any(c.execute("SELECT status FROM tasks WHERE id=?", (dep,)).fetchone()[0] != "done"
                        for dep in spec["depends_on"]):
                     continue
+                from .goals import claim_ready
+                if not claim_ready(c, row['id']):
+                    continue
                 token = secrets.token_urlsafe(24)
                 c.execute("UPDATE tasks SET status='running',owner=?,claim_token=?,lease=?,attempts=attempts+1,updated=? WHERE id=?",
                           (worker, token, time.time() + lease_seconds, utc(), row["id"]))
@@ -407,12 +514,38 @@ class Hive:
         if any(len(x) > 800 for group in (result.artifacts, result.verification, result.unresolved) for x in group):
             raise ValueError("Keep result entries below 800 characters; link large artifacts")
         with self.connect(write=True) as c:
-            self._owned(c, ident, token)
+            owned = self._owned(c, ident, token)
+            recorded = 0
+            if result.status == 'done':
+                from .memory import fields, metadata, eligible
+                project = json.loads(owned['spec'])['project']
+                for used in result.used_procedures:
+                    target = self.note_path(used.path)
+                    name = target.relative_to(self.vault).as_posix()
+                    prior = c.execute('SELECT content FROM note_versions WHERE path=? AND revision=?',
+                                      (name, used.revision)).fetchone()
+                    if not prior:
+                        raise ValueError('Reported procedure revision is unavailable; read the source first')
+                    raw = bytes(prior['content']).decode('utf-8')
+                    data = fields(raw)
+                    if (data.get('Kind') != 'procedure' or data.get('Basis') != 'verified-result'
+                            or not eligible(name, metadata(name, raw), project)):
+                        raise ValueError('Reported procedure must be verified and applicable to this project')
+                    c.execute('INSERT INTO procedure_uses(path,revision,source,evidence,used) VALUES(?,?,?,?,?)',
+                              (name, used.revision, 'task ' + ident, used.evidence, utc()))
+                    recorded += 1
             c.execute("UPDATE tasks SET status=?,result=?,claim_token=NULL,lease=NULL,updated=? WHERE id=?",
                       (result.status, result.model_dump_json(), utc(), ident))
             self._event(c, ident, result.status, result.summary)
             self._export(c)
-        return {"id": ident, "status": result.status}
+        learning = None
+        if result.status == 'done':
+            from .proposals import outcome
+            try:
+                learning = outcome(self, self.get_task(ident))
+            except (OSError, ValueError) as exc:
+                learning = {'saved': False, 'reason': type(exc).__name__}
+        return {"id": ident, "status": result.status, "learning_proposal": learning, "recorded_procedure_uses": recorded}
 
     def requeue(self, ident):
         with self.connect(write=True) as c:
@@ -445,12 +578,16 @@ class Hive:
         with self.connect(write=True) as c:
             self._expire(c)
             self._export(c)
-        return {"dashboard": "vault/Home.md"}
+        from .review import MARKER, render
+        review = self.note_path("Review.md")
+        generated = not review.exists() or review.read_text(encoding="utf-8").startswith(MARKER + "\n")
+        result = render(self) if generated else {"saved": False, "reason": "Personal Review.md preserved"}
+        return {"dashboard": "vault/Home.md", "review_dashboard": result}
 
     def _export(self, c):
         rows = c.execute("SELECT * FROM tasks ORDER BY created DESC,id").fetchall()
         table = ["# HiveMind", "", "Shared memory for connected MCP agent harnesses.", "",
-                 "[[START|Start here]] · [[00-System/HIVE|Working agreement]] · [[00-System/Working-Style|Working style]]", "",
+                 "[[START|Start here]] · [[00-System/HIVE|Working agreement]] · [[00-System/Working-Style|Working style]] · [[Review|Memory review]]", "",
                  "## Tasks", "", "Generated from the coordinator. Use Hive tools to change task state.", "",
                  "| Task | Agent | Status | Worker |", "| --- | --- | --- | --- |"]
         for row in rows:
@@ -474,6 +611,20 @@ class Hive:
             atomic_write(self.vault / "04-Tasks" / f"{ident}.md", note + "\n")
         if not rows:
             table.append("| No tasks yet | — | — | — |")
+        goals = c.execute('SELECT id,spec,status,task_map,integrated FROM goals ORDER BY rowid DESC LIMIT 20').fetchall()
+        if goals:
+            table += ['', '## Goals', '']
+            for goal in goals:
+                title = json.loads(goal['spec'])['title'].replace('|', '-').replace('\n', ' ')
+                state = goal['status']
+                mapping, integrated = json.loads(goal['task_map']), json.loads(goal['integrated'])
+                states = [c.execute('SELECT status FROM tasks WHERE id=?', (ident,)).fetchone()['status']
+                          for ident in mapping.values()]
+                if states and all(value == 'done' for value in states):
+                    pending = any(node['access'] == 'write' and node['key'] not in integrated
+                                  for node in json.loads(goal['spec'])['tasks'])
+                    state = 'awaiting_integration' if pending else 'completed'
+                table.append(f"- [[04-Tasks/Goals/{goal['id']}|{title}]] — {state}")
         table += ["", "## Memory", "", "[[01-Memory/User/Preferences|Your preferences]] · [[03-Projects/HiveMind/Current-State|Current state]]", "",
                   "Memory remains plain Markdown. Search returns small excerpts; archives are excluded by default.", "",
                   f"Last refreshed: {utc()}"]

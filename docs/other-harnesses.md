@@ -24,8 +24,8 @@ lists the HiveMind tools.
 
 The default `full` profile exposes memory, sessions, task claims, messages, and
 optional Graphify. For a client that only needs shared memory and handoffs, run
-`hive.py client-info myproject --profile memory`; its stdio args expose eight
-memory/session tools. Task and message coordination requires the full profile.
+`hive.py client-info myproject --profile memory`; its stdio args expose eleven
+memory, review, and session tools. Task and message coordination requires the full profile.
 The client-specific `--profile` does not change other clients. To make memory
 the default for this HiveMind device, rerun setup with `--tool-profile memory`.
 

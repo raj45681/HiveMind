@@ -53,7 +53,7 @@ def excerpt(text, byte_limit, query=""):
     return "\n".join(units[i] for i in sorted(chosen)), len(chosen) < len(units)
 
 
-def search(hive, query, limit=5, archive=False, project=""):
+def search(hive, query, limit=5, archive=False, project="", files=None):
     validate_project(project)
     hive.index()
     words = [word for word in re.findall(r"\w+", query, flags=re.UNICODE) if word.lower() not in STOPWORDS][:20]
@@ -63,20 +63,26 @@ def search(hive, query, limit=5, archive=False, project=""):
     # Scope is a path-segment comparison, not LIKE: underscores in IDs are literal.
     prefix = f"03-Projects/{project}/"
     with hive.connect() as c:
-        rows = c.execute("""SELECT path,title,content,revision,bm25(notes,0,3,1,0) AS rank
-            FROM notes WHERE notes MATCH ?
-            AND (path LIKE '00-System/%' OR path LIKE '01-Memory/%'
-                 OR path LIKE '02-Decisions/%' OR path LIKE '03-Projects/%'
-                 OR path LIKE '05-Agents/%' OR path LIKE '99-Archive/%')
-            AND (? OR path NOT LIKE '99-Archive/%')
-            AND path NOT LIKE '01-Memory/Candidates/%'
-            AND path NOT LIKE '03-Projects/%/Review-Queue/%'
-            AND path NOT LIKE '03-Projects/%/Sessions/%'
-            AND (?='' OR path NOT LIKE '03-Projects/%' OR lower(substr(path,1,?))=lower(?))
-            AND (?='' OR path NOT LIKE '99-Archive/03-Projects/%'
-                 OR lower(substr(path,12,?))=lower(?))
-            ORDER BY rank,path LIMIT 80""", (match, archive, project, len(prefix), prefix,
-                                              project, len(prefix), prefix)).fetchall()
+        rows = c.execute("""SELECT notes.path,title,content,notes.revision,bm25(notes,0,3,1,0) AS rank,
+                   m.state,m.topic,m.claim,m.files,m.replaces,m.conflicts
+            FROM notes LEFT JOIN memory_metadata m ON m.path=notes.path WHERE notes MATCH ?
+            AND (notes.path LIKE '00-System/%' OR notes.path LIKE '01-Memory/%'
+                 OR notes.path LIKE '02-Decisions/%' OR notes.path LIKE '03-Projects/%'
+                 OR notes.path LIKE '05-Agents/%' OR notes.path LIKE '99-Archive/%')
+            AND (? OR notes.path NOT LIKE '99-Archive/%')
+            AND notes.path NOT LIKE '01-Memory/Candidates/%'
+            AND notes.path NOT LIKE '03-Projects/%/Review-Queue/%'
+            AND notes.path NOT LIKE '03-Projects/%/Sessions/%'
+            AND (?='' OR notes.path NOT LIKE '03-Projects/%' OR lower(substr(notes.path,1,?))=lower(?))
+            AND (?='' OR notes.path NOT LIKE '99-Archive/03-Projects/%'
+                 OR lower(substr(notes.path,12,?))=lower(?))
+            AND (?='' OR coalesce(m.scope,'')='' OR lower(m.scope)=lower(?))
+            AND (? OR coalesce(m.state,'active')!='superseded')
+            ORDER BY rank,notes.path LIMIT 80""", (match, archive, project, len(prefix), prefix,
+                                              project, len(prefix), prefix, project, project, archive)).fetchall()
+        usage = {row['path']: row['uses'] for row in c.execute(
+            "SELECT u.path,count(*) AS uses FROM procedure_uses u JOIN notes n "
+            "ON n.path=u.path AND n.revision=u.revision GROUP BY u.path")}
     results = []
     strongest = max((-float(row['rank']) for row in rows), default=1) or 1
     distinct_words = {word.casefold() for word in words}
@@ -93,7 +99,9 @@ def search(hive, query, limit=5, archive=False, project=""):
             continue
         current = bool(project and row['path'].lower().startswith(prefix.lower()))
         # Lexical relevance remains primary; bounded project/freshness boosts break close matches.
-        score = -float(row['rank']) / strongest + (0.35 if current else 0) + 0.15 / (1 + age_days / 30)
+        linked = bool(set(files or []) & set(json.loads(row['files'] or '[]')))
+        score = (-float(row['rank']) / strongest + (0.35 if current else 0) + 0.15 / (1 + age_days / 30)
+                 + (0.25 if linked else 0) + min(0.10, math.log1p(usage.get(row['path'], 0)) * .03))
         text, omitted = excerpt(row['content'], 600, query)
         results.append((score, row['path'], {"path": row['path'], "title": row['title'],
                         "excerpt": text, "revision": row['revision'], "omitted": omitted}))
@@ -116,7 +124,7 @@ def search(hive, query, limit=5, archive=False, project=""):
             pass
         semantic = []
     if not semantic:
-        return lexical[:max(1, min(limit, 5))]
+        return describe(hive, lexical[:max(1, min(limit, 5))], project)
     candidates = {item['path']: item for item in lexical}
     scores = {item['path']: 1 / (60 + rank) for rank, item in enumerate(lexical, 1)}
     missing = [path for _, path, _ in semantic if path not in candidates]
@@ -150,10 +158,37 @@ def search(hive, query, limit=5, archive=False, project=""):
             candidates[path]['excerpt'] = text
             candidates[path]['omitted'] = True
     ordered = sorted(candidates, key=lambda path: (-scores.get(path, 0), path))
-    return [candidates[path] for path in ordered[:max(1, min(limit, 5))]]
+    return describe(hive, [candidates[path] for path in ordered[:max(1, min(limit, 5))]], project)
 
 
-def context(hive, agent="generic", project="", query="", budget_tokens=None):
+def describe(hive, cards, project=""):
+    # Surface declared conflicts and competing current claims; never infer truth.
+    with hive.connect() as c:
+        for card in cards:
+            meta = c.execute("SELECT * FROM memory_metadata WHERE path=?", (card['path'],)).fetchone()
+            if not meta:
+                continue
+            if meta['state'] != 'active':
+                card['state'] = meta['state']
+            if meta['replaces']:
+                card['replaced_by'] = meta['replaces']
+            older = [row[0] for row in c.execute('SELECT path FROM memory_metadata WHERE replaces=? LIMIT 3', (card['path'],))]
+            if older:
+                card['supersedes'] = older
+            conflicts = json.loads(meta['conflicts'])
+            if meta['topic'] and meta['claim']:
+                conflicts += [row[0] for row in c.execute(
+                    "SELECT path FROM memory_metadata WHERE topic=? AND scope=? AND state!='superseded' "
+                    "AND claim!='' AND claim!=? AND path!=? AND path NOT LIKE '99-Archive/%' "
+                    "AND path NOT LIKE '%/Review-Queue/%' AND path NOT LIKE '01-Memory/Candidates/%' LIMIT 3",
+                    (meta['topic'], meta['scope'], meta['claim'], card['path']))]
+            if conflicts or meta['state'] == 'disputed':
+                card['warning'] = 'Conflicting memory: inspect sources before applying this advice.'
+                card['conflicts'] = sorted(set(conflicts))[:3]
+    return cards
+
+
+def context(hive, agent="generic", project="", query="", budget_tokens=None, task_id="", files=None):
     from .store import utc
     validate_project(project)
     validate_agent(agent)
@@ -171,6 +206,25 @@ def context(hive, agent="generic", project="", query="", budget_tokens=None):
                          "method": "UTF-8 JSON bytes / 4; not an exact model tokenizer", "omitted_items": 0}}
     seen = set()
 
+    from .task_context import prepare
+    task, related_files, linked = prepare(hive, project, task_id, files or [])
+    if task:
+        if not project:
+            project = task['project']
+        if not query:
+            query = task['title']
+        # Bound task/dependency metadata separately so it cannot crowd out memory.
+        while size(task) > cap * .25 and (task['dependencies'] or task['files']):
+            if task['dependencies']:
+                task['dependencies'].pop()
+            else:
+                task['files'].pop()
+            task['details_omitted'] = True
+        if size(task) <= cap * .25:
+            result['task'] = task
+    if related_files and size(related_files) < cap * .08:
+        result['related_files'] = related_files
+
     def add(section, name, allowance, singleton=False, preferred=None):
         path = hive.note_path(name)
         if name.lower() in seen or not path.exists():
@@ -181,6 +235,16 @@ def context(hive, agent="generic", project="", query="", budget_tokens=None):
             return
         card = {"path": path.relative_to(hive.vault).as_posix(), "revision": hashlib.sha256(raw).hexdigest(),
                 "text": "", "omitted": False}
+        from .memory import metadata, eligible
+        meta = metadata(name, raw.decode('utf-8'))
+        if not eligible(name, meta, project):
+            return
+        if source_card := preferred:
+            for field in ('state', 'warning', 'conflicts', 'replaced_by', 'supersedes'):
+                if field in source_card:
+                    card[field] = source_card[field]
+        elif meta['state'] == 'disputed':
+            card['warning'] = 'Disputed memory; inspect sources.'
         available = min(allowance, cap - size(result) - size(card) - 64)
         source = preferred if preferred is not None and card['revision'] == preferred['revision'] else None
         text, omitted = excerpt(source['excerpt'] if source else raw.decode('utf-8'), max(0, available),
@@ -236,6 +300,14 @@ def context(hive, agent="generic", project="", query="", budget_tokens=None):
                 result['budget']['omitted_items'] += 1
             else:
                 seen.add(session['path'].lower())
+    for name in linked[:3]:
+        described = describe(hive, [{'path': name}], project)[0]
+        # Full note excerpts are chosen below; descriptions carry conflict warnings.
+        add('relevant', name, int(cap * .10))
+        if result['relevant'] and result['relevant'][-1]['path'] == name:
+            for field in ('state', 'warning', 'conflicts', 'supersedes'):
+                if field in described and size(result) + size({field: described[field]}) < cap - 64:
+                    result['relevant'][-1][field] = described[field]
     if query:
         instruction_paths = {f'00-System/{name}.md'.lower() for name in
                              ('Personality', 'Working-Style')}
@@ -243,7 +315,7 @@ def context(hive, agent="generic", project="", query="", budget_tokens=None):
         state_path = f'03-Projects/{project}/Current-State.md'.lower() if project else ''
         project_preferences = f'03-Projects/{project}/Preferences/'.lower() if project else ''
         prioritized = 0
-        matches = search(hive, query, limit=5, project=project)
+        matches = search(hive, query, limit=5, project=project, files=(task or {}).get('files', files or []))
         if (hive.runtime / 'semantic-last-error.log').exists():
             warning = 'Local semantic recall degraded; keyword results only. Run hive.py doctor for details.'
             if size(result) + len(warning.encode('utf-8')) + 32 < cap:

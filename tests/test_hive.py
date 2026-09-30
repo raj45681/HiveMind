@@ -88,7 +88,7 @@ class StoreTests(unittest.TestCase):
         with self.hive.connect() as c:
             self.assertEqual(c.execute("SELECT count(*) FROM events WHERE task=?",
                                        (task["id"],)).fetchone()[0], events)
-        self.assertEqual(self.hive.get_task(task["id"])["result"], result | {"artifacts": [], "unresolved": []})
+        self.assertEqual(self.hive.get_task(task["id"])["result"], result | {"artifacts": [], "unresolved": [], 'used_procedures': []})
 
     def test_memory_compare_and_swap_and_windows_newlines(self):
         path = "01-Memory/test.md"

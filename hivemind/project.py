@@ -40,7 +40,10 @@ Before substantial work:
   agent, and a short task-topic query once per
   substantial task. It pulls shared style, confirmed preferences, project state and
   relevant shared solutions and the latest session. Default budget is 1800 estimated
-  tokens; request budget_tokens=1000 for a smaller brief. Excerpts are incomplete:
+  tokens. For assigned tasks pass task_id; when affected files are known pass files
+  to retrieve linked decisions and dependency evidence. Inspect conflict warnings and
+  replacement sources before applying memory.
+  Request budget_tokens=1000 for a smaller brief. Excerpts are incomplete:
   use note_read before editing an existing note. Current requests win.
   Skip this if a Hive worker already included shared instructions in the task brief.
 - Use the returned matches or `memory_search` with project=`{name}` and topic keywords.

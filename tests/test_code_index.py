@@ -133,7 +133,7 @@ class CodeMCPTests(unittest.IsolatedAsyncioTestCase):
                     await client.initialize()
                     tools = {t.name: t for t in (await client.list_tools()).tools}
                     names = set(tools)
-                    self.assertEqual(len(names), 17)
+                    self.assertEqual(len(names), 23)
                     self.assertIn("code_query", names)
                     self.assertFalse(tools["code_query"].annotations.readOnlyHint)
                     self.assertFalse(tools["code_query"].annotations.destructiveHint)

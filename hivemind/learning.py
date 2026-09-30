@@ -4,7 +4,7 @@ from .store import utc
 
 
 def learning_note(kind, key, summary, source, project="", evidence="", basis="observation",
-                  trigger="", steps=None, applicability=""):
+                  trigger="", steps=None, applicability="", topic="", files=None, claim=""):
     if kind not in {"preference", "solution", "decision", "procedure"} or basis not in {"user-stated", "verified-result", "observation"}:
         raise ValueError("Invalid memory kind or basis")
     if not re.fullmatch(r"[a-z0-9_-]{1,80}", key):
@@ -27,7 +27,7 @@ def learning_note(kind, key, summary, source, project="", evidence="", basis="ob
     elif kind == "solution":
         if basis != "verified-result" or not evidence.strip():
             raise ValueError("Reusable solutions need verified-result basis and concrete verification evidence")
-        directory = "01-Memory/Solutions"
+        directory = f"03-Projects/{project}/Solutions" if project else "01-Memory/Solutions"
     elif kind == "procedure":
         if (basis != "verified-result" or not evidence.strip() or not trigger.strip()
                 or not isinstance(steps, list) or not 1 <= len(steps) <= 8
@@ -46,4 +46,9 @@ def learning_note(kind, key, summary, source, project="", evidence="", basis="ob
                     + "\n".join(f"{index}. {step.strip()}" for index, step in enumerate(steps, 1))
                     + f"\n\nApplicability: {applicability.strip() or 'Only where the stated trigger and verification apply.'}\n\n")
     content += f"Verification / applicability:\n{evidence.strip() or 'User statement; no broader inference.'}\n"
+    if topic or files or claim:
+        from .memory import annotate, file_paths
+        if not re.fullmatch(r"[a-z0-9_.-]{0,100}", topic) or len(claim) > 500 or "\n" in claim:
+            raise ValueError("Use a short topic slug and a single-line claim")
+        content = annotate(content, {"Topic": topic, "Files": file_paths(files or []), "Claim": claim})
     return f"{directory}/{key}.md", content
