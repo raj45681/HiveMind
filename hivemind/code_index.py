@@ -138,6 +138,9 @@ def allowed(path, root_is_project=False):
 
 def sources(root, project):
     """Content fingerprints catch edits, deletions, branch changes and new files."""
+    # Canonicalize the selected root before checking descendants. Windows short
+    # paths (e.g. RUNNER~1) otherwise make ordinary files look like symlinks.
+    project = Path(project).resolve()
     try:
         result = subprocess.run(["git", "-C", str(project), "ls-files", "-c", "-o", "--exclude-standard", "-z", "--", "."],
                                 stdin=subprocess.DEVNULL, capture_output=True, timeout=20)

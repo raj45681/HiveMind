@@ -19,7 +19,7 @@ class RecoveryTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.root = Path(self.tmp.name)
+        self.root = Path(self.tmp.name).resolve()
         self.repo = self.root / "repo"
         self.repo.mkdir()
         self.git("init", "-q", str(self.repo), in_repo=False)

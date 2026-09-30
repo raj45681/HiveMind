@@ -58,7 +58,7 @@ class GenericHarnessTests(unittest.TestCase):
                          agent=bad, acceptance=['Done'])
 
     def test_client_info_reports_local_stdio_command_and_workflow(self):
-        root = Path(self.tmp.name)
+        root = Path(self.tmp.name).resolve()
         project = root / 'example'
         project.mkdir()
         (project / 'AGENTS.md').write_text('# Project instructions\n')

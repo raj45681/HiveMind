@@ -80,6 +80,13 @@ class CodeIndexTests(unittest.TestCase):
             self.skipTest("Symlinks require OS permission")
         self.assertNotIn("linked.py", code.sources(self.root, self.project)[0])
 
+    def test_equivalent_project_root_keeps_sources_and_fingerprint(self):
+        canonical = code.sources(self.root, self.project.resolve())
+        alias = self.project / '..' / self.project.name
+        selected = code.sources(self.root, alias)
+        self.assertEqual(list(selected[0]), ['app.py'])
+        self.assertEqual(selected[:2], canonical[:2])
+
     def test_missing_disabled_empty_invalid_and_limits_fall_back(self):
         with patch.object(code, "installed", return_value=False):
             self.assertEqual(code.operate(self.root, "app", "login")["status"], "unavailable")

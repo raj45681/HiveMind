@@ -270,7 +270,7 @@ else:
     async def test_write_worker_checkpoints_its_worktree_before_and_after_execution(self):
         # The fixture mutates an isolated Git worktree; no paid agent is launched.
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             repo = root / 'repo'
             repo.mkdir()
             subprocess.run(['git', 'init', str(repo)], check=True, capture_output=True)
