@@ -8,7 +8,7 @@ Keep your preferences, project context, and hard-won solutions in one local fold
 
 ![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-8EF0CC?style=flat-square&labelColor=101B2C) ![Storage Markdown + SQLite](https://img.shields.io/badge/Storage-Markdown%20%2B%20SQLite-A59FFF?style=flat-square&labelColor=101B2C) ![Interface MCP](https://img.shields.io/badge/Interface-MCP-92B9FF?style=flat-square&labelColor=101B2C) ![Hosting Not required](https://img.shields.io/badge/Hosting-Not%20required-8EF0CC?style=flat-square&labelColor=101B2C) [![License MIT](https://img.shields.io/badge/License-MIT-C9D7E8?style=flat-square&labelColor=101B2C)](LICENSE)
 
-[![M8ven Score](https://m8ven.ai/badge/mcp/raj45681/hivemind)](https://m8ven.ai/mcp/raj45681/hivemind)
+[![M8ven Score](https://m8ven.ai/badge/mcp/raj45681-hivemind-1ffwv0)](https://m8ven.ai/mcp/raj45681-hivemind-1ffwv0)
 
 [Quick start](#quick-start) · [How it works](#how-it-works) · [Connect an agent](docs/other-harnesses.md) · [Your memory](#your-memory) · [Backups](#back-up--move-devices) · [Documentation](#documentation)
 
