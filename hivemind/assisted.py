@@ -20,6 +20,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError
 
 from .context import validate_agent, validate_project
+from .openrouter import MAX_ATTEMPTS, OpenRouterFailure, model_pool, retry_after, retry_delay
 from .store import Hive, atomic_write, utc
 
 ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions'
@@ -96,7 +97,9 @@ def settings(root, project=''):
         if isinstance(number, bool) or not isinstance(number, int) or not low <= number <= high:
             raise ValueError(f'{name} must be {low}-{high}')
         value = {**value, name: number}
-    return {**value, 'model': model, 'daily_limit': limit, 'free_only': free}
+    pool = model_pool(model, free, value.get('fallback_models'))
+    return {**value, 'model': model, 'daily_limit': limit, 'free_only': free,
+            'model_pool': pool, 'max_attempts': MAX_ATTEMPTS}
 
 
 def enabled(root, project):
@@ -400,6 +403,9 @@ def _events(hive, job):
 def _reserve(hive, job, cfg):
     now = time.time()
     with hive.connect(write=True) as c:
+        cooldown = c.execute("SELECT value FROM assist_state WHERE key='openrouter_not_before'").fetchone()
+        if cooldown and float(cooldown[0]) > now:
+            return float(cooldown[0]) - now
         c.execute('DELETE FROM assist_requests WHERE created<?', (now - 172800,))
         recent = [row[0] for row in c.execute('SELECT created FROM assist_requests WHERE created>? ORDER BY created', (now - 86400,))]
         global_limit = settings(hive.root)['daily_limit']
@@ -490,6 +496,15 @@ def infer(model, events, prior, api_key, policy=None):
             'provider': {'require_parameters': True, 'max_price': {'prompt': 0, 'completion': 0}},
             'response_format': {'type': 'json_schema', 'json_schema': {
                 'name': 'hivemind_learning', 'strict': True, 'schema': Extraction.model_json_schema()}}}
+    pool = model_pool(model, (policy or {}).get('free_only', True), (policy or {}).get('fallback_models'))
+    offset = (policy or {}).get('attempt', 0) % len(pool)
+    pool = pool[offset:] + pool[:offset]
+    if len(pool) > 1:
+        # OpenRouter tries models in order within this request. Subsequent HTTP
+        # attempts rotate the first choice, including after invalid JSON output.
+        body.pop('model')
+        body['models'] = pool
+    body['provider']['allow_fallbacks'] = True
     if policy and not policy['free_only']:
         body['provider']['max_price'] = {'prompt': policy['prompt_price'], 'completion': policy['completion_price']}
     encoded = json.dumps(body, ensure_ascii=False, separators=(',', ':')).encode()
@@ -501,9 +516,17 @@ def infer(model, events, prior, api_key, policy=None):
     try:
         with urllib.request.build_opener(NoRedirect).open(request, timeout=35) as response:
             raw = response.read(100001)
+            headers = getattr(response, 'headers', None)
         if len(raw) > 100000:
             raise ValueError('Oversized model response')
         envelope = json.loads(raw)
+        if not isinstance(envelope, dict):
+            raise ValueError('OpenRouter returned an invalid response envelope')
+        if isinstance(envelope.get('error'), dict):
+            code = envelope['error'].get('code')
+            raise OpenRouterFailure(code if type(code) is int else 502,
+                                    retry_after(headers.get('Retry-After')) if headers else None,
+                                    usage_metadata(envelope))
         usage = usage_metadata(envelope)
         try:
             cost = envelope.get('usage', {}).get('cost')
@@ -525,7 +548,9 @@ def infer(model, events, prior, api_key, policy=None):
             raise InferenceFailure(message, usage) from None
     except urllib.error.HTTPError as exc:
         # Never log provider bodies, authorization headers or submitted messages.
-        raise RuntimeError('OpenRouter HTTP ' + str(exc.code)) from None
+        delay = retry_after(exc.headers.get('Retry-After')) if exc.headers else None
+        exc.close()
+        raise OpenRouterFailure(exc.code, delay) from None
     except urllib.error.URLError:
         raise RuntimeError('OpenRouter connection unavailable') from None
     except (KeyError, TypeError, json.JSONDecodeError):
@@ -616,7 +641,7 @@ def run(hive, project='', limit=4, infer_fn=None, automatic=False):
                 if job['result']:
                     output, model = Extraction.model_validate_json(job['result']), job['model']
                 else:
-                    if job['attempts'] >= 3:
+                    if job['attempts'] >= MAX_ATTEMPTS:
                         with hive.connect(write=True) as c:
                             c.execute("UPDATE assist_jobs SET status='failed',error='Attempt limit reached' WHERE id=?", (job['id'],))
                         continue
@@ -638,7 +663,8 @@ def run(hive, project='', limit=4, infer_fn=None, automatic=False):
                     calls += 1
                     prior = latest(hive, job['project'], job['native_session'])
                     arguments = (cfg['model'], events, (prior or {}).get('summary', ''), key)
-                    output, model = infer_fn(*arguments) if infer_fn else infer(*arguments, policy=cfg)
+                    output, model = infer_fn(*arguments) if infer_fn else infer(
+                        *arguments, policy={**cfg, 'attempt': job['attempts']})
                     usage = dict(output._usage)
                     if output._usage_cost is not None:
                         usage['charge'] = output._usage_cost
@@ -656,22 +682,29 @@ def run(hive, project='', limit=4, infer_fn=None, automatic=False):
                     c.execute("UPDATE assist_state SET value=? WHERE key='worker'",
                               (json.dumps({'token': token, 'pid': os.getpid(), 'until': time.time() + 240}),))
             except Exception as exc:
-                billing_hold = isinstance(exc, InferenceFailure) and cfg['free_only'] and exc.usage.get('charge', 0) > 0
-                if isinstance(exc, InferenceFailure):
+                billing_hold = isinstance(exc, (InferenceFailure, OpenRouterFailure)) and cfg['free_only'] and exc.usage.get('charge', 0) > 0
+                if isinstance(exc, (InferenceFailure, OpenRouterFailure)):
                     _account(hive, job, exc.usage)
                 # Error strings from arbitrary provider/client exceptions may contain secrets.
-                error = str(exc) if type(exc) in {ValueError, RuntimeError, InferenceFailure} else type(exc).__name__
+                error = str(exc) if type(exc) in {ValueError, RuntimeError, InferenceFailure, OpenRouterFailure} else type(exc).__name__
                 error = redact(error)[:200]
                 with hive.connect(write=True) as c:
                     state = c.execute('SELECT result,attempts FROM assist_jobs WHERE id=?', (job['id'],)).fetchone()
-                    retryable = not billing_hold and isinstance(exc, (OSError, RuntimeError, ValueError, ValidationError)) and state['attempts'] < 3
+                    retryable = (not billing_hold and isinstance(exc, (OSError, RuntimeError, ValueError, ValidationError))
+                                 and state['attempts'] < MAX_ATTEMPTS
+                                 and (not isinstance(exc, OpenRouterFailure) or exc.retryable))
+                    delay = retry_delay(state['attempts'], exc.retry_after if isinstance(exc, OpenRouterFailure) else None)
+                    if isinstance(exc, OpenRouterFailure) and exc.retryable:
+                        current = c.execute("SELECT value FROM assist_state WHERE key='openrouter_not_before'").fetchone()
+                        until = max(time.time() + delay, float(current[0]) if current else 0)
+                        c.execute("INSERT OR REPLACE INTO assist_state VALUES ('openrouter_not_before',?)", (str(until),))
                     if billing_hold:
                         c.execute('INSERT OR REPLACE INTO assist_state VALUES (?,?)',
                                   ('billing_hold:' + job['project'], json.dumps({'job': job['id'], 'at': utc()})))
                     c.execute('UPDATE assist_jobs SET status=?,error=?,not_before=? WHERE id=?',
                               ('ready' if state['result'] else 'retry' if retryable else 'failed',
-                               error, time.time() + 60, job['id']))
-                    retry_after = 60 if retryable or state['result'] else None
+                               error, time.time() + delay, job['id']))
+                    retry_after = delay if retryable or state['result'] else None
                 break
         with hive.connect(write=True) as c:
             c.execute("INSERT OR REPLACE INTO assist_state VALUES ('last_run',?)",
@@ -763,13 +796,16 @@ def status(hive, project=''):
         pending = c.execute('SELECT count(*) FROM assist_events WHERE job IS NULL').fetchone()[0]
         last = c.execute("SELECT value FROM assist_state WHERE key='last_run'").fetchone()
         spool_error = c.execute("SELECT value FROM assist_state WHERE key='spool_error'").fetchone()
-        problems = [dict(row) for row in c.execute("SELECT id,status,error,attempts FROM assist_jobs WHERE error IS NOT NULL ORDER BY created DESC LIMIT 5")]
+        problems = [dict(row) for row in c.execute("SELECT id,status,error,attempts,not_before FROM assist_jobs WHERE error IS NOT NULL ORDER BY created DESC LIMIT 5")]
+        cooldown = c.execute("SELECT value FROM assist_state WHERE key='openrouter_not_before'").fetchone()
         holds = [dict(row) for row in c.execute("SELECT key,value FROM assist_state WHERE key LIKE 'billing_hold:%'")]
     from .credentials import key_status
     credential = key_status(hive.root)
     return {'enabled': enabled(hive.root, project) if project else cfg.get('enabled', False),
             'projects': cfg.get('projects', []), 'project_settings': cfg.get('project_settings', {}), 'model': cfg['model'],
             'free_only': cfg['free_only'], 'daily_limit': cfg['daily_limit'], 'requests_last_24h': requests,
+            'model_pool': cfg['model_pool'], 'max_attempts': cfg['max_attempts'],
+            'retry_after': max(0, float(cooldown[0]) - time.time()) if cooldown else 0,
             'device_daily_limit': settings(hive.root)['daily_limit'], 'device_requests_last_24h': device_requests,
             'reserved_or_spent_usd_last_24h': charge,
             'usage_last_24h': dict(zip(('requests', 'requests_with_token_usage', 'prompt_tokens', 'completion_tokens', 'total_tokens', 'cached_tokens', 'reasoning_tokens'), totals)),

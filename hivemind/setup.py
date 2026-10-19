@@ -13,7 +13,7 @@ def add_arguments(parser):
                         help='Select clients; repeat, use auto to detect, or all to generate every adapter')
     parser.add_argument('--scope', choices=('project', 'user'), help='Default: project only. User-wide registration requires explicit --scope user')
     parser.add_argument('--learning', choices=('off', 'free', 'cheap'), help='Set learning for this project only')
-    parser.add_argument('--model', help='OpenRouter model ID; free mode defaults to openrouter/free')
+    parser.add_argument('--model', help='OpenRouter primary model ID; free mode includes automatic free fallbacks')
     parser.add_argument('--daily-limit', type=int, help='Project request ceiling per rolling 24 hours (1-1000)')
     parser.add_argument('--daily-usd', type=float, help='Explicit project dollar ceiling for cheap mode')
     parser.add_argument('--prompt-price', type=float, help='Cheap mode maximum dollars per million input tokens')
@@ -90,8 +90,20 @@ def choose(root, project_id, args, *, interactive=None, input_fn=input, output=s
                 capture = True
             if mode == 'free' and model != 'openrouter/free' and not model.endswith(':free'):
                 model = 'openrouter/free'
-            model = _ask(input_fn, 'OpenRouter model ID', model if mode == 'free' else
-                         current['model'] if current.get('mode') == 'cheap' else '')
+            if mode == 'free':
+                from .openrouter import FREE_MODELS, is_free_model
+                print('Free models (automatic fallback; no paid models):', file=output)
+                for number, (ident, label) in enumerate(FREE_MODELS, 1):
+                    print(f'  {number}. {label} — {ident}', file=output)
+                while True:
+                    selected = _ask(input_fn, 'Primary model number or free model ID', model)
+                    model = FREE_MODELS[int(selected) - 1][0] if selected.isdigit() and 1 <= int(selected) <= len(FREE_MODELS) else selected
+                    if is_free_model(model):
+                        break
+                    print('Choose a listed number, openrouter/free or a model ID ending in :free.', file=output)
+            else:
+                model = _ask(input_fn, 'OpenRouter model ID',
+                             current['model'] if current.get('mode') == 'cheap' else '')
             limit = int(_ask(input_fn, 'Maximum project requests per 24 hours (shared device cap also applies)', limit))
             if mode == 'cheap':
                 for field, label in (('daily_usd', 'Maximum project dollars per 24 hours'),
@@ -156,6 +168,10 @@ def apply(root, project, project_id, choices, *, skip_register=False, secret_fn=
     print(f"  Learning: {choices['mode']} ({choices['model']}; project {choices['daily_limit']}/24h; "
           f"device {assisted.settings(root)['daily_limit']}/24h)", file=output)
     if choices['mode'] != 'off':
+        policy = assisted.settings(root, project_id)
+        if policy['free_only']:
+            print('  Free fallback pool: ' + ', '.join(policy['model_pool']), file=output)
+        print(f'  Retry policy: {assisted.MAX_ATTEMPTS} attempts total; 5s/10s backoff plus jitter; respects Retry-After.', file=output)
         print('  OpenRouter key: ' + credential['source'] + ('; activity remains queued until key is set' if not credential['available'] else ''), file=output)
         print('  AI progress is provisional. Taste/style and knowledge suggestions require local review.', file=output)
     return results

@@ -94,21 +94,62 @@ runbook authoring before being relied on as verified procedures.
 
 ## Model budgets and failure behavior
 
-The default model is `openrouter/free`. You can select a catalog model with an
-explicit `:free` suffix using `--model`. Paid IDs are rejected, and the request
-sets a zero input/output price ceiling. There is no paid fallback in free mode.
+Free learning offers six choices in the project wizard. The selected primary
+goes first; the other entries form an automatic fallback pool:
+
+| Choice | OpenRouter ID |
+| --- | --- |
+| Automatic free router (default) | `openrouter/free` |
+| NVIDIA Nemotron 3 Super | `nvidia/nemotron-3-super-120b-a12b:free` |
+| Xing4.0 29B A4B | `xingchen-agi/xing4.0-29b-a4b:free` |
+| Dots3-Note Preview | `dots-studio/dots-3-note-preview:free` |
+| NVIDIA Nemotron 3.5 Super VL | `nvidia/nemotron-3.5-super-vl:free` |
+| LiquidAI LFM2.5-2.6B | `liquid/lfm-2.5-2.6b:free` |
+
+The five named models advertised zero input/output prices and structured output
+support in the [OpenRouter catalog](https://openrouter.ai/api/v1/models) on
+2026-10-19. Availability can change. Setup uses this built-in list without making
+an API request. You can still enter a custom `:free` ID or pass `--model`.
+
+Requests use OpenRouter's ordered
+[`models` fallback routing](https://openrouter.ai/docs/guides/routing/model-fallbacks),
+so an unavailable or throttled model can fall through to the next one. The zero
+input/output price ceiling and required JSON schema apply to the whole pool.
+Paid fallback IDs are rejected. To customize the pool, set `fallback_models` to
+a list of up to six free IDs under `assisted_learning` or a project's
+`project_settings` in ignored `hive.local.json`; an empty list keeps only the
+selected primary. Successful handoffs and accounting record the actual model.
+
 Project setup can separately opt into `cheap` mode with an explicit model,
 daily dollar budget and input/output price ceilings. Those calls reserve a
 conservative cost before sending; failed or unknown outcomes keep the reservation.
 Successful reported usage reconciles it. Project request caps also apply under
-the shared device cap. API/provider errors keep the local journal intact.
+the shared device cap. Cheap mode keeps its explicitly selected model and does
+not inherit the free fallback pool. API/provider errors keep the local journal intact.
 
 The request ledger is shared across enabled projects. It counts failed attempts,
 applies a rolling 24-hour local budget, spaces requests by at least four seconds,
-and caps local traffic at 18 requests per minute. Network and invalid-output
-retries are limited to three attempts with a delay. Deferred batches are revisited
-on a subsequent source event or explicit `assist-run`; there is no perpetual
-model-driven polling loop. Keep the event journal when inference is unavailable.
+and caps local traffic at 18 requests per minute. Each HTTP attempt, including a
+failed retry, consumes a local request reservation. Whole-request failures get
+at most **three attempts total** (the initial request and two retries), after
+5 and 10 seconds plus up to one second of jitter. Each retry rotates the pool's
+first choice, including when a response fails local JSON/evidence validation.
+
+HTTP 408/429 and temporary server failures can retry. Authentication, invalid
+request and credit errors stop immediately; a 402 carrying `Retry-After` is
+treated as temporary in accordance with OpenRouter's
+[error handling guide](https://openrouter.ai/docs/api/reference/errors-and-debugging).
+Numeric and HTTP-date `Retry-After` values take priority over shorter backoff.
+A persisted device cooldown prevents another project from ignoring that delay.
+`assist-status` shows the pool, attempt limit, cooldown and each problem job's
+next eligible time.
+
+The bounded background worker retries short delays itself. Delays longer than
+60 seconds stay queued on disk for a subsequent source event or explicit
+`assist-run`, including after the app closes. There is no perpetual model-driven
+polling loop. Recorded events remain available even after all attempts fail;
+inspect `assist-status` and use `assist-retry JOB-ID` for an explicit fresh attempt
+cycle. Switching models does not increase your shared OpenRouter account quota.
 
 Publishing failures reuse the already saved model response. Repeated exact
 suggestions do not recreate an already reviewed candidate. Source records,

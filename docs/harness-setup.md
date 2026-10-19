@@ -11,6 +11,12 @@ learning mode, model and request budget, native activity capture, automatic or
 manual inference, and optional purpose and working preference. Blank optional
 answers save nothing. Project preferences remain scoped to that project.
 
+Free learning shows six numbered choices: the automatic free router and five
+named free models. Pick a number or enter a custom `:free` model ID. The selected
+model leads a free fallback pool, with three HTTP attempts total and short
+backoff that honors `Retry-After`. Existing free configurations receive the
+default pool automatically. See the [model list and retry behavior](assisted-learning.md#model-budgets-and-failure-behavior).
+
 When learning is enabled and no usable key exists, hidden terminal input asks
 for the OpenRouter key. Enter can leave it unset: activity remains queued.
 `--set-key` explicitly replaces a stored key in an interactive terminal. Keys

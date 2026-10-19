@@ -146,6 +146,11 @@ terminal input and saved privately on this device, outside Git and the vault.
 Existing environment keys are reused. The **All** option saves only the
 working-style answers you actually enter. Setup makes no paid agent call.
 
+Free learning offers six model choices with automatic free fallback routing.
+Temporary failures retry up to three attempts total, with short backoff and
+OpenRouter's `Retry-After` delays. Every HTTP retry respects the shared request
+budget. See the [model pool and retry policy](docs/assisted-learning.md#model-budgets-and-failure-behavior).
+
 Both commands are safe to rerun. Saved project choices avoid repeated questions;
 `--configure` reopens them. Setup configures each selected client independently,
 then opens the local MCP bridge and calls `hive_context` without starting an AI

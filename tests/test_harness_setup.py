@@ -233,6 +233,18 @@ class HarnessSetupTests(unittest.TestCase):
         self.assertEqual(again['harnesses'], ['claude', 'opencode'])
         self.assertEqual(again['model'], 'openrouter/free')
 
+    def test_free_model_menu_accepts_a_number_and_keeps_custom_ids_available(self):
+        from hivemind.openrouter import FREE_MODELS
+        for answer, expected in [('2', FREE_MODELS[1][0]), ('provider/custom:free', 'provider/custom:free')]:
+            with self.subTest(answer=answer):
+                answers = iter(['none', 'free', answer, '25', 'yes', 'auto', '', ''])
+                output = io.StringIO()
+                with patch('hivemind.setup.inventory', return_value=[]):
+                    choices = setup.choose(self.root, 'alpha', self.args(), interactive=True,
+                        input_fn=lambda _: next(answers), output=output)
+                self.assertEqual(choices['model'], expected)
+                self.assertIn('6. LiquidAI', output.getvalue())
+
     def test_noninteractive_and_dry_run_do_not_prompt_for_keys_or_enable_learning(self):
         for flags in (('--no-prompt',), ('--dry-run',)):
             choices = setup.choose(self.root, 'alpha', self.args(*flags), interactive=True,
