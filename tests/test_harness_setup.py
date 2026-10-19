@@ -21,7 +21,7 @@ class HarnessSetupTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='Hive adapters ')
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.home = self.root / 'user'
         self.project = self.root / 'Project with spaces'
         self.home.mkdir()
