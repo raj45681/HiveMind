@@ -1,5 +1,16 @@
 # Move HiveMind to another device
 
+For a fresh installation, install Node.js 20+, Python 3.11+ and Git, open a
+terminal in a project folder and run:
+
+```sh
+npx --yes github:raj45681/HiveMind setup
+```
+
+This installs the software and creates a local shared home. To carry your
+existing memory to the device, restore a backup as described below. See the
+[npm guide](npm-setup.md) for the full installation walkthrough.
+
 ## Current setup: portable local memory
 
 HiveMind is designed for one active device. This guide covers migration or
@@ -10,6 +21,17 @@ device, install Python 3.11+ and your agent CLIs, then run that folder's
 `python3 ~/HiveMind/bootstrap.py`. Initial Python dependencies need internet once.
 The bundle restores vault memory, tasks and messages; device paths and credentials
 are recreated. Restart existing agent sessions. See the root README for commands.
+
+You can also enroll a project through npm using that restored folder as its
+shared home. For example, after extracting the bundle to `D:\HiveMind`, run this
+from the project's root folder:
+
+```sh
+npx --yes github:raj45681/HiveMind setup --hive-home "D:\HiveMind"
+```
+
+Later projects reuse this remembered home. Enter the OpenRouter key when the
+wizard asks; credentials must be configured again on the new device.
 
 Use one active copy and move a new bundle when switching devices. Offline copies
 do not sync or merge automatically. Keep working repositories and their artifacts

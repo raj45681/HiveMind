@@ -1,6 +1,17 @@
 # Guided client and project setup
 
-Run `hivemind.cmd` in a project on Windows, or use `setup.sh` on Linux. From the
+From your project's root folder, use Node.js 20+, Python 3.11+ and Git to run:
+
+```sh
+npx --yes github:raj45681/HiveMind setup
+```
+
+Or install the launcher with `npm install --save-dev github:raj45681/HiveMind`,
+then run `npx hivemind setup`. See [npm installation](npm-setup.md) for shared
+storage, existing HiveMind folders and updates.
+
+For a manual Git installation, run `hivemind.cmd` in a project on Windows, or
+use `setup.sh` on Linux. From the
 HiveMind folder, `python bootstrap.py /path/to/project` and `python hive.py setup
 /path/to/project` use the same wizard. Use the bundle's virtualenv Python after
 installation. No agent or inference request is launched by setup.

@@ -92,7 +92,7 @@ Goal plans connect tasks into bounded dependency graphs with explicit agent exec
 > Your AI agents still use their own services and account allowances. Retrieved
 > memory uses normal context tokens.
 
-**One-command guided setup:** run HiveMind from your project's CMD prompt, pick
+**One-command guided setup:** run HiveMind from your project's terminal, pick
 the features and clients you want, and start working. It enrolls the project,
 configures project connections, and checks the MCP bridge. Each project keeps its
 own learning/model/budget choices. User-wide client registration is never a fallback.
@@ -100,7 +100,8 @@ own learning/model/budget choices. User-wide client registration is never a fall
 
 ## Quick start
 
-You need **Python 3.11+**, **Git**, and an agent that supports stdio MCP. Guided
+You need **Node.js 20+** for npm/npx, **Python 3.11+**, **Git**, and an agent that
+supports stdio MCP. A manual Git install is also available without Node.js. Guided
 setup can register recognized installed CLIs; other clients use the manual
 connection details. The first setup downloads the Python dependencies. This source
 repository is public, so cloning it needs no GitHub sign-in. Your personal vault
@@ -111,9 +112,9 @@ The vault, checkpoints and private API key stay in that shared HiveMind folder;
 activation files live in the enrolled project. Other folders receive no settings.
 [Project layout, commands and migration →](docs/project-installation.md)
 
-### npm / npx setup
+### 1 · Install from your project folder
 
-With Node.js 20+ and Python 3.11+ installed, run from your project folder:
+Open a terminal in the project you want to enroll and run:
 
 ```sh
 npx --yes github:raj45681/HiveMind setup
@@ -133,16 +134,19 @@ environment and pinned dependencies are prepared automatically by the setup comm
 Activation remains project-only. The shared backend, vault and keys live outside
 `node_modules` and npm's cache; removing the npm package does not remove memory.
 
-To reuse an existing installation on the first npm run:
+To reuse an existing HiveMind folder on your first npm run, select it explicitly:
 
 ```sh
-npx hivemind setup --hive-home "D:\HiveMind"
+npx --yes github:raj45681/HiveMind setup --hive-home "D:\HiveMind"
 ```
 
-Later projects reuse the remembered home. See [npm setup and storage](docs/npm-setup.md)
-for requirements, updates and additional options.
+Later projects reuse the remembered home. On a fresh device, the shared home is
+`~/.hivemind/home`. Run the same setup command inside each project you want to
+enroll. See [npm setup and storage](docs/npm-setup.md) for requirements, updates
+and additional options.
 
-### 1 · Get HiveMind and enroll your project
+<details>
+<summary><strong>Alternative: manual Git install without npm</strong></summary>
 
 Open **CMD in the project you want to work on** and paste this single line:
 
@@ -156,7 +160,14 @@ Already have HiveMind installed? From any project's CMD prompt:
 "%USERPROFILE%\HiveMind\hivemind.cmd"
 ```
 
-On the first interactive run, choose what to include:
+For PowerShell and Linux commands, see the
+[project installation guide](docs/project-installation.md#manual-git-install).
+Use either the npm method or this manual method; both open the same wizard.
+
+</details>
+
+The setup command opens the wizard. On the first interactive run, choose what
+to include:
 
 | Choice | Setup |
 | :--- | :--- |
@@ -169,7 +180,7 @@ On the first interactive run, choose what to include:
 
 Semantic recall downloads a local model; Graphify downloads an isolated
 dependency. HiveMind saves your semantic and Graphify choices on this device.
-For the next project, run the same command from that project's CMD prompt; it
+For the next project, run the same command from that project's terminal; it
 reuses the local feature choices. A project wizard then asks for clients,
 learning mode, OpenRouter model and budget, activity capture, and optional
 project purpose and working preference. Interactive setup always explicitly asks
@@ -184,7 +195,7 @@ Temporary failures retry up to three attempts total, with short backoff and
 OpenRouter's `Retry-After` delays. Every HTTP retry respects the shared request
 budget. See the [model pool and retry policy](docs/assisted-learning.md#model-budgets-and-failure-behavior).
 
-Both commands are safe to rerun. Saved project choices avoid repeated option
+Setup is safe to rerun. Saved project choices avoid repeated option
 questions; the OpenRouter key step remains explicit during interactive learning
 setup. `--configure` reopens the other options; `--no-prompt` skips all questions.
 Setup configures each selected client independently,
@@ -203,8 +214,8 @@ command. You can combine `--other-client` with `--with-semantic` and `--with-gra
 To reopen the menu and change the defaults for future projects, run this from
 the project you are setting up:
 
-```cmd
-"%USERPROFILE%\HiveMind\hivemind.cmd" --configure
+```sh
+npx --yes github:raj45681/HiveMind setup --configure
 ```
 
 If you installed HiveMind before the guided menu was added, use `--configure`
@@ -651,6 +662,9 @@ checkpoint drafts, and procedures to check. Refresh it with
 
 | Guide | Read it for |
 | :--- | :--- |
+| [npm and npx installation](docs/npm-setup.md) | Guided setup, requirements, shared storage and software updates |
+| [Project installation](docs/project-installation.md) | Manual Git installation, project helpers and migration from global activation |
+| [Harness setup](docs/harness-setup.md) | Supported clients, project connections, native capture and key entry |
 | [Core memory and goal workflows](docs/core-workflows.md) | Current decisions, task-aware context, consolidation, outcome learning, and bounded goal execution |
 | [Budgeted context & session handoffs](docs/context-and-sessions.md) | Smaller briefs, checkpoints, resume, and optional CLI exit capture |
 | [Optional local code graphs](docs/code-graphs.md) | Graphify setup, bounded queries, supported files and fallback behavior |

@@ -10,12 +10,17 @@ No JavaScript dependencies or install lifecycle scripts are required.
 npx --yes github:raj45681/HiveMind setup
 ```
 
-Or keep the launcher in the project:
+Or keep the launcher as a development dependency in the project:
 
 ```sh
 npm install --save-dev github:raj45681/HiveMind
 npx hivemind setup
 ```
+
+Use `npx hivemind` after the local dependency has been installed. Without it,
+use the full `npx --yes github:raj45681/HiveMind` form shown above. Both forms
+work in CMD, PowerShell and Linux terminals. Run setup in the repository root
+of each project you want to enroll.
 
 The package is installed directly from this public GitHub repository. It has not
 been published as an npm-registry package. No npm login is needed for this path.
@@ -29,6 +34,41 @@ OpenRouter key entry. Enter reuses an available key or skips missing-key entry.
 The terminal is inherited so passwords remain hidden. Setup starts no agent or
 model generation. The first run prepares a Python virtual environment and installs
 the pinned bridge dependencies; optional features download only when selected.
+
+## Complete the guided setup
+
+1. Choose the local features: core memory, optional semantic recall, optional
+   code graphs, or both. Code graphs need Python 3.12+.
+2. Select the installed harnesses you use in this project. Setup reports native
+   project connections and CLI fallbacks separately.
+3. Select Free, Cheap or Off for assisted learning. For Free, choose the automatic
+   router or a named free model and set the request budget. Free model failures
+   use the fallback pool and bounded retries described in the
+   [learning guide](assisted-learning.md#model-budgets-and-failure-behavior).
+4. Choose activity capture and answer any optional project questions. When
+   learning is enabled, enter the OpenRouter key at the hidden prompt. Enter
+   keeps a saved key or skips entry when none exists. The key is shared private
+   device storage; each project's learning settings remain separate.
+5. Check the setup report, restart the selected harness in this project and
+   accept its normal project-trust and MCP prompts.
+
+Saved projects reuse their choices; interactive learning setup still asks for
+the key. To reopen the other questions, run:
+
+```sh
+npx --yes github:raj45681/HiveMind setup --configure
+```
+
+After enrollment, check context and learning status through the project helper:
+
+```sh
+python .hivemind/hive.py context --query "current task"
+python .hivemind/hive.py assist-status
+```
+
+Use `python3` on systems where that is the Python command. Windows also provides
+`.hivemind\hive.cmd`; Linux provides `bash .hivemind/hive`. The helper uses the
+same shared backend even after the npm package is removed.
 
 ## Keep one shared Hive
 

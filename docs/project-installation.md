@@ -8,15 +8,39 @@ remain in the existing shared HiveMind folder.
 
 ## Install from a project folder
 
-With Node.js 20+ and Python 3.11+, you can launch the same wizard through npm:
+Run from your application's repository root. Choose npm/npx or the manual Git
+installation below; both open the same wizard.
+
+### npm / npx (recommended)
+
+Install Node.js 20+, Python 3.11+ and Git, then run:
 
 ```sh
 npx --yes github:raj45681/HiveMind setup
 ```
 
-Or use `npm install --save-dev github:raj45681/HiveMind`, then `npx hivemind setup`.
-This keeps shared state outside npm's files. See the [npm guide](npm-setup.md)
-to select an existing shared installation or review update behavior.
+Or add the launcher as a development dependency:
+
+```sh
+npm install --save-dev github:raj45681/HiveMind
+npx hivemind setup
+```
+
+The package comes from GitHub; an npm registry release is not required.
+`npm install` installs the launcher; `setup` opens the questions. On a fresh
+device, shared software and memory live in `~/.hivemind/home`, outside your
+project and npm's files. To use an existing custom home on the first run:
+
+```sh
+npx --yes github:raj45681/HiveMind setup --hive-home "D:\HiveMind"
+```
+
+Run setup in each later project to reuse the remembered home. See the
+[npm guide](npm-setup.md) for discovery, updates and additional options.
+
+### Manual Git install
+
+This method needs Python 3.11+ and Git. Node.js is optional.
 
 If HiveMind is already installed, reuse that installation. For example, with
 your shared Hive at `D:\HiveMind`, open CMD in your application's repository root:
@@ -48,6 +72,8 @@ python3 "$HOME/HiveMind/bootstrap.py" "$PWD"
 For later projects, run only the second command from each project folder.
 Reusing the same HiveMind installation preserves shared memory. A second clone
 starts with a separate empty vault; it is not a copy of your personal knowledge.
+
+### Complete the wizard
 
 The wizard asks for clients, optional local recall/indexing, free/cheap/off
 learning, model, budget, activity capture and optional project preferences. It
