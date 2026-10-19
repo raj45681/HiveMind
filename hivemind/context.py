@@ -3,6 +3,7 @@ import hashlib
 import json
 import math
 import re
+import sqlite3
 import time
 
 AGENTS = {"codex": "Codex", "grok": "Grok", "antigravity": "Antigravity"}
@@ -300,6 +301,38 @@ def context(hive, agent="generic", project="", query="", budget_tokens=None, tas
                 result['budget']['omitted_items'] += 1
             else:
                 seen.add(session['path'].lower())
+    from .assisted import enabled, latest, recent
+    if project and enabled(hive.root, project):
+        cutoff = (packet.get('previous_handoff') or packet.get('session') or {}).get('checkpoint_timestamp', 0)
+        try:
+            activity = recent(hive, project, after_timestamp=cutoff, limit=2)
+            progress = latest(hive, project, after_timestamp=cutoff)
+        except (OSError, ValueError, sqlite3.Error):
+            activity, progress = [], None
+            result['recorder_unavailable'] = True
+        # New local work outranks a delayed summary. This fallback is available
+        # during debounce, API outages and quota exhaustion with zero inference.
+        if activity and (not progress or max(item['captured_at'] for item in activity) > progress.get('source_at', 0)):
+            events = []
+            for event in activity:
+                text, omitted = excerpt(event['text'], max(80, int(cap * .035)))
+                events.append({'id': event['id'], 'agent': event['agent'], 'role': event['role'],
+                               'text': text, 'omitted': omitted})
+            local = {'events': events, 'unverified': True,
+                     'note': 'Local activity after the checkpoint. Inspect source events or hive.py handoff before assuming results.'}
+            if size(result) + size(local) < cap - 96:
+                result['local_activity'] = local
+            else:
+                result['budget']['omitted_items'] += 1
+        elif progress:
+            derived = {key: progress[key] for key in ('native_session', 'through_event', 'created')}
+            derived['summary'] = excerpt(progress['summary'], max(80, int(cap * .08)))[0]
+            derived['unreviewed'] = True
+            derived['note'] = 'AI-derived progress; inspect live files and original events. Not confirmed memory.'
+            if size(result) + size(derived) < cap - 96:
+                result['derived_progress'] = derived
+            else:
+                result['budget']['omitted_items'] += 1
     for name in linked[:3]:
         described = describe(hive, [{'path': name}], project)[0]
         # Full note excerpts are chosen below; descriptions carry conflict warnings.

@@ -78,8 +78,9 @@ async def inspect(root, source, url, token, config):
                    "detail": "Graphify is available" if graph_installed else
                              "Enabled Graphify is unavailable" if projects else "Optional Graphify is not enabled",
                    "repair": command(*cli, "code-setup", projects[0]) if projects and not graph_installed and not url else None})
-    agents = {name: shutil.which(exe) for name, exe in
-              {"codex": "codex", "grok": "grok", "antigravity": "agy"}.items()}
+    from .harnesses import inventory
+    clients = inventory()
+    agents = {row['id']: row['cli'] for row in clients}
     checks.append({"name": "agent_clients", "status": "ok" if any(agents.values()) else "optional",
                    "required": False, "detail": "Detected clients: " + ", ".join(name for name, path in agents.items() if path)
                    if any(agents.values()) else "No recognized CLI; generic stdio MCP clients remain supported",
@@ -88,6 +89,7 @@ async def inspect(root, source, url, token, config):
     return {"ok": ok, "checks": checks, "coordinator": destination(url),
             "machine": config.get("machine", socket.gethostname()),
             "memory": destination(cloud_settings(root)[0] or url), "agents": agents,
+            "harnesses": clients,
             "task_access": task_access, "code_index": {"enabled_projects": projects, "installed": graph_installed},
             "semantic_memory": {**semantic_status, "installed": semantic_status["status"] == "ready",
                                 "authority": destination(url)},

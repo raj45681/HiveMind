@@ -36,8 +36,8 @@ def ensure_bridge_dependencies(python, dry_run=False):
     return dependencies
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Set up this project's shared local HiveMind folder")
+def build_parser(add_help=True):
+    parser = argparse.ArgumentParser(description="Set up this project's shared local HiveMind folder", add_help=add_help)
     parser.add_argument("project", nargs="?", type=Path, default=Path.cwd())
     parser.add_argument("--name", default="")
     parser.add_argument("--skip-register", action="store_true")
@@ -49,7 +49,13 @@ def main():
     parser.add_argument("--with-semantic", action="store_true", help="Install local semantic memory search (one-time model download)")
     parser.add_argument("--other-client", action="store_true", help="Use a generic stdio MCP client and show its connection details")
     parser.add_argument("--tool-profile", choices=("full", "memory"), help="Set the default MCP tool profile for this HiveMind device")
-    args = parser.parse_args()
+    from hivemind.setup import add_arguments
+    add_arguments(parser)
+    return parser
+
+
+def main():
+    args = build_parser().parse_args()
     if sys.version_info < (3, 11):
         raise ValueError("Install Python 3.11 or newer, then run this command again")
     target = ROOT / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
@@ -101,12 +107,15 @@ def main():
         raise ValueError(attached.stderr.strip() or attached.stdout.strip() or "project enrollment failed")
     enrollment = json.loads(attached.stdout)
     project_id = enrollment["project"]
+    from hivemind.setup import choose as choose_project, apply as apply_project
+    project_options = choose_project(ROOT, project_id, args)
     if args.dry_run:
         print(f"HiveMind preview for {project_id}: {', '.join(enrollment['files_to_change']) or 'no project file changes'}")
         if options["graphify"]:
             print("Preview: would install isolated Graphify and build a local source-only index.")
         if options["semantic"]:
             print("Preview: would install the local semantic model; Markdown stays authoritative.")
+        print('Project setup preview: ' + json.dumps(project_options))
         print("No agent registration, MCP probe, profile prompt or model call was run.")
         return 0
     from hivemind.onboarding import setup_extras
@@ -115,12 +124,9 @@ def main():
         reason = "requested with --skip-register" if args.skip_register else "using another MCP client"
         agents = {name: {"status": "skipped", "detail": reason}
                   for name in ("codex", "grok", "antigravity")}
+        apply_project(ROOT, args.project, project_id, project_options, skip_register=True)
     else:
-        registration = subprocess.run([str(target), str(ROOT / "scripts/register_agents.py"), "--json"],
-                                      capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
-        if not registration.stdout.strip():
-            raise ValueError("Agent registration did not return a report: " + registration.stderr.strip())
-        agents = json.loads(registration.stdout)
+        agents = apply_project(ROOT, args.project, project_id, project_options)
     try:
         probe = subprocess.run([str(target), "-m", "hivemind.onboarding", str(ROOT), project_id],
                                cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=45)
@@ -138,7 +144,14 @@ def main():
     print(f"\nHiveMind onboarding - {project_id}")
     print(f"  Project: ready ({len(enrollment['changed_files'])} file changes)")
     for name, result in agents.items():
-        print(f"  {name}: {result['status']} ({result['detail']})")
+        if 'mcp' in result:
+            print(f"  {name}: MCP {result['mcp']['status']}; capture {result['capture']['status']}; "
+                  f"task execution {'available' if result['task_execution'] else 'manual client'}")
+            for part in ('mcp', 'instructions', 'capture'):
+                if result[part].get('status') == 'needs-action':
+                    print(f"    {part}: {result[part]['detail']}")
+        else:
+            print(f"  {name}: {result['status']} ({result['detail']})")
     for name, result in extras.items():
         print(f"  {name}: {result['status']} ({result['detail']})")
     generic = options["other_client"] or all(result["status"] == "skipped" for result in agents.values())

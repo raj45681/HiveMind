@@ -48,6 +48,33 @@ solution is still correct. Existing notes are never rewritten by retrieval.
 
 ## Structured handoffs
 
+For a compact packet to carry into another harness, run this from HiveMind:
+
+```powershell
+.\.venv\Scripts\python.exe hive.py handoff myapp
+.\.venv\Scripts\python.exe hive.py handoff myapp --budget 1800 --format json
+```
+
+The default is readable Markdown with a 1200-token estimated envelope. Both
+Markdown and JSON bytes are checked against the budget; tokenization remains
+model-dependent. Lower-priority history can be omitted with an explicit count.
+The full checkpoint remains the source for omitted details. An individual
+remaining blocker or next action is not silently cut to fit an impossible small
+budget; request a larger brief in that case.
+
+This command uses no model and launches no agent. It keeps the last substantive
+checkpoint even after a fresh or wrapper-only session, and labels checks as
+historical reports. New local activity has source IDs and stays unverified.
+Replay uses the original capture time, so an old imported event does not look
+like work performed after the checkpoint. Git drift tells the next harness when
+to inspect the live tree before relying on the saved state. API access and an
+OpenRouter key are unnecessary for the handoff.
+
+With assisted capture enabled, `hive_context` also surfaces newer local activity
+when there is no current AI summary. A stale summary never outranks a newer
+checkpoint. This improves continuity during outages without adding MCP tools or
+requesting a model-generated handoff from the exhausted source harness.
+
 Each session has a project, starting agent, goal, stable ID and revision. Each
 checkpoint records:
 

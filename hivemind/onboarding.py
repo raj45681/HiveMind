@@ -7,9 +7,24 @@ import sys
 from pathlib import Path
 
 
+def interactive_terminal():
+    if not sys.stdin.isatty():
+        return False
+    if sys.platform == 'win32':
+        # Windows reports NUL (including subprocess.DEVNULL) as a character TTY.
+        import ctypes
+        import msvcrt
+        mode = ctypes.c_ulong()
+        try:
+            return bool(ctypes.windll.kernel32.GetConsoleMode(msvcrt.get_osfhandle(sys.stdin.fileno()), ctypes.byref(mode)))
+        except (OSError, ValueError):
+            return False
+    return True
+
+
 def choose_setup(args, config, first_setup, *, interactive=None, input_fn=input, output=sys.stdout):
     """Choose optional local features once; flags remain useful in scripts."""
-    interactive = sys.stdin.isatty() if interactive is None else interactive
+    interactive = interactive_terminal() if interactive is None else interactive
     defaults = config.get("onboarding_defaults", {})
     if not isinstance(defaults, dict):
         raise ValueError("Invalid saved onboarding defaults in hive.local.json")

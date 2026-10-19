@@ -394,7 +394,16 @@ class Hive:
 
     def session_checkpoint(self, ident, checkpoint, expected_revision, workspace=None):
         from .sessions import checkpoint as save
-        return save(self, ident, checkpoint, expected_revision, workspace)
+        result = save(self, ident, checkpoint, expected_revision, workspace)
+        # Model availability must never affect the durability of a checkpoint.
+        try:
+            from .assisted import capture_checkpoint
+            captured = capture_checkpoint(self, result['session'])
+            if captured is not None:
+                result['assisted_learning'] = captured
+        except Exception as exc:
+            result['assisted_learning'] = {'saved': False, 'reason': type(exc).__name__}
+        return result
 
     def session_resume(self, project, ident=""):
         from .sessions import resume

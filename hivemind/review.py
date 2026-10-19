@@ -32,7 +32,7 @@ def render(hive, project="", stale_days=180, limit=25):
         try:
             note = hive.read_note(name, limit=1000)
             if _fields(note["text"]).get("Status", "draft").casefold() == "draft":
-                if _fields(note['text']).get('Kind') in {'outcome', 'consolidation'}:
+                if _fields(note['text']).get('Kind') in {'outcome', 'consolidation', 'assisted'}:
                     proposals.append(name)
                 else:
                     drafts.append(name)
@@ -61,7 +61,7 @@ def render(hive, project="", stale_days=180, limit=25):
                   f"## Learning proposals ({len(proposals)})", ""])
     lines.extend('- ' + link(name) for name in proposals[:limit])
     if not proposals:
-        lines.append('No consolidation or completed-task lessons await review.')
+        lines.append('No consolidation, assisted learning or completed-task lessons await review.')
     lines.extend(['', 'Read the proposal and source evidence, then accept or reject its current revision:', '',
                   '```text', 'hive.py learning-review "PROPOSAL_PATH" --revision CURRENT_REVISION --accept',
                   'hive.py learning-review "PROPOSAL_PATH" --revision CURRENT_REVISION --reject', '```', '',

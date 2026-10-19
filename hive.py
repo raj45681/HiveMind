@@ -1,4 +1,4 @@
-"""Portable CLI entry point. No agent/model runs unless 'run' is explicitly used."""
+"""Portable CLI. Agent execution and optional hosted learning require explicit opt-in."""
 import argparse
 import asyncio
 import getpass
@@ -10,7 +10,7 @@ import socket
 import sys
 from pathlib import Path
 
-from hivemind.store import Hive, atomic_write
+from hivemind.store import Hive, atomic_write, utc
 from hivemind.transport import backend, connection
 
 ROOT = Path(__file__).resolve().parent
@@ -20,6 +20,10 @@ def parser():
     p = argparse.ArgumentParser(description="HiveMind — Obsidian memory and agent coordination")
     p.add_argument("--root", type=Path, default=ROOT)
     sub = p.add_subparsers(dest="cmd", required=True)
+    import bootstrap
+    sub.add_parser('setup', parents=[bootstrap.build_parser(add_help=False)],
+                   help='Guided setup for a project: harnesses, activity capture and OpenRouter learning')
+    sub.add_parser('harnesses', help='List supported harnesses, detection and capture capabilities')
     sub.add_parser("init", help="Initialize local coordinator and note index")
     s = sub.add_parser("doctor", help="Check local tools and coordinator access without model usage")
     s.add_argument("--human", action="store_true", help="Show a readable summary and repair commands instead of JSON")
@@ -48,8 +52,46 @@ def parser():
     s.add_argument("--budget", type=int)
     s.add_argument('--task', default='', help='Include task files, dependency results and linked memory')
     s.add_argument('--file', action='append', default=[], help='Project-relative affected file; repeat for more files')
+    s = sub.add_parser('handoff', help='Build a compact source-backed handoff without any model call')
+    s.add_argument('project')
+    s.add_argument('--budget', type=int, default=1200)
+    s.add_argument('--format', choices=('markdown', 'json'), default='markdown')
     s = sub.add_parser('learn', help='Save structured scoped learning from a JSON file')
     s.add_argument('file', type=Path)
+    s = sub.add_parser('assist-enable', help='Opt enrolled projects into free OpenRouter learning suggestions')
+    s.add_argument('projects', nargs='*')
+    s.add_argument('--all-projects', action='store_true')
+    s.add_argument('--model', default='openrouter/free')
+    s.add_argument('--daily-limit', type=int, default=900)
+    s.add_argument('--manual', action='store_true', help='Record automatically but run inference only with assist-run')
+    sub.add_parser('assist-disable', help='Stop future assisted capture and inference, retaining local records')
+    s = sub.add_parser('assist-status', help='Show model, local request budget and queue health')
+    s.add_argument('--project', default='')
+    s = sub.add_parser('assist-run', help='Process bounded recorded activity under the configured model and budgets')
+    s.add_argument('--project', default='')
+    s.add_argument('--limit', type=int, default=4)
+    s.add_argument('--background', action='store_true', help=argparse.SUPPRESS)
+    s.add_argument('--ticket', default='', help=argparse.SUPPRESS)
+    s = sub.add_parser('assist-events', help='Read recent recorded events for one project')
+    s.add_argument('project')
+    s.add_argument('--limit', type=int, default=10)
+    s = sub.add_parser('assist-retry', help='Explicitly requeue one failed batch after inspecting its sources and error')
+    s.add_argument('job')
+    s = sub.add_parser('assist-record', help='Record supplied activity text from a file or stdin (-)')
+    s.add_argument('project')
+    s.add_argument('file')
+    s.add_argument('--agent', default='generic')
+    s.add_argument('--session', required=True)
+    s.add_argument('--role', choices=('user', 'assistant', 'tool'), required=True)
+    s.add_argument('--source-id', default='')
+    s = sub.add_parser('assist-install-hooks', help='Install reviewed-command hooks while preserving existing client hooks')
+    from hivemind.harnesses import HARNESS
+    s.add_argument('--agent', choices=tuple(HARNESS), action='append')
+    s.add_argument('--project', type=Path)
+    s.add_argument('--scope', choices=('project', 'user'), default='user')
+    s = sub.add_parser('assist-hook', help=argparse.SUPPRESS)
+    s.add_argument('--agent', choices=tuple(HARNESS), required=True)
+    s.add_argument('--event', default='')
     s = sub.add_parser('memory-relate', help='Record replacement or conflict between current memory notes')
     s.add_argument('relation', choices=('supersedes', 'conflicts', 'resolve'))
     s.add_argument('path')
@@ -224,6 +266,19 @@ def save_config(root, config):
 
 async def execute(args):
     root = args.root.resolve()
+    if args.cmd == 'harnesses':
+        from hivemind.harnesses import inventory
+        return {'harnesses': inventory(), 'model_calls': 0}
+    if args.cmd == 'setup':
+        if root != ROOT:
+            raise ValueError('Run setup from the HiveMind bundle that owns this device configuration')
+        import subprocess
+        # Forward the exact setup arguments; never include a credential value.
+        index = sys.argv.index('setup')
+        result = subprocess.run([sys.executable, str(ROOT / 'bootstrap.py'), *sys.argv[index + 1:]])
+        if result.returncode:
+            raise ValueError('Setup needs attention; see the per-client report above')
+        return {'setup': 'completed', 'model_calls': 0}
     if args.cmd == "verify":
         from hivemind.verify import verify
         return await verify(ROOT)
@@ -231,6 +286,57 @@ async def execute(args):
         from hivemind.benchmark import run
         return await run(root, args.distractors, args.semantic)
     url, token, config = connection(root)
+    if args.cmd == 'handoff':
+        if url:
+            raise ValueError('Build the handoff on the local Hive authority')
+        from hivemind.handoff import build
+        return build(Hive(root), args.project, args.budget)
+    if args.cmd.startswith('assist-'):
+        if url:
+            raise ValueError('Configure and run assisted learning on the local Hive authority')
+        from hivemind import assisted
+        if args.cmd == 'assist-enable':
+            return assisted.configure(root, ['*'] if args.all_projects else args.projects,
+                                      args.model, args.daily_limit, not args.manual)
+        if args.cmd == 'assist-disable':
+            config['assisted_learning'] = {**config.get('assisted_learning', {}), 'enabled': False}
+            save_config(root, config)
+            return {'enabled': False, 'records_preserved': True}
+        if args.cmd == 'assist-install-hooks':
+            return assisted.install_hooks(root, args.agent or ('codex', 'grok'), project=args.project, scope=args.scope)
+        if args.cmd == 'assist-hook':
+            try:
+                raw = sys.stdin.read(200001)
+                if len(raw) > 200000:
+                    raise ValueError('Hook input is too large')
+                payload = json.loads(raw)
+                if args.event:
+                    payload['hook_event_name'] = args.event
+                assisted.hook(root, args.agent, payload)
+            except Exception as exc:
+                # Passive recording failures do not steer or block the agent.
+                atomic_write(root / 'runtime' / 'assisted-hook-error.json',
+                             json.dumps({'at': utc(),
+                                         'error': type(exc).__name__}))
+            return {}  # Codex Stop expects JSON; Grok passive hooks ignore stdout.
+        hive = Hive(root)
+        if args.cmd == 'assist-status':
+            return assisted.status(hive, args.project)
+        if args.cmd == 'assist-run':
+            if args.background:
+                from hivemind.assisted_worker import background
+                return background(hive, args.ticket, args.limit)
+            return assisted.run(hive, args.project, args.limit)
+        if args.cmd == 'assist-events':
+            return assisted.read_events(hive, args.project, args.limit)
+        if args.cmd == 'assist-retry':
+            return assisted.retry(hive, args.job)
+        if args.cmd == 'assist-record':
+            text = sys.stdin.read(200001) if args.file == '-' else Path(args.file).read_text(encoding='utf-8-sig')
+            result = assisted.record(hive, args.project, args.agent, args.session, args.role, text, args.source_id)
+            if result.get('saved') and not result.get('duplicate'):
+                assisted.kick(root, args.project)
+            return result
     if args.cmd == "doctor":
         from hivemind.diagnostics import inspect
         return await inspect(root, ROOT, url, token, config)
@@ -506,7 +612,10 @@ def main():
             server.run(transport="stdio")
         return
     result = asyncio.run(execute(args))
-    if args.cmd == "doctor" and args.human:
+    if args.cmd == 'handoff' and args.format == 'markdown':
+        from hivemind.handoff import markdown
+        print(markdown(result), end='')
+    elif args.cmd == "doctor" and args.human:
         from hivemind.diagnostics import human
         print(human(result))
     elif args.cmd == "code-query":

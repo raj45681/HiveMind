@@ -43,7 +43,7 @@ def load(hive, path, expected_revision):
     if len(blocks) != 1:
         raise ValueError("Proposal source record is missing or ambiguous")
     payload = json.loads(blocks[0])
-    if payload.get('kind') not in {'consolidation', 'outcome'}:
+    if payload.get('kind') not in {'consolidation', 'outcome', 'assisted'}:
         raise ValueError("Unknown proposal kind")
     return note, raw, payload
 
@@ -73,6 +73,13 @@ def review(hive, path, expected_revision, accept=False, content=''):
                 task = c.execute('SELECT status,result FROM tasks WHERE id=?', (payload['task'],)).fetchone()
                 if not task or task['status'] != 'done' or hashlib.sha256(task['result'].encode()).hexdigest() != payload['result_revision']:
                     raise ValueError("Task result changed; inspect the latest outcome")
+            if payload['kind'] == 'assisted':
+                # AI output stays a draft until this explicit review. Its cited
+                # activity must still belong to the proposal's original project.
+                rows = c.execute('SELECT id,project FROM assist_events WHERE job=?', (payload['job'],)).fetchall()
+                ids = {row['id'] for row in rows if row['project'] == project}
+                if not payload.get('event_ids') or not set(payload['event_ids']) <= ids:
+                    raise ValueError('Assisted source events are missing or belong to another project')
             updates[target] = ('new', incoming)
             for source in payload.get('notes', []):
                 old = hive.read_note(source['path'], limit=8000)

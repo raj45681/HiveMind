@@ -3,7 +3,7 @@
 ![HiveMind cats and ants carrying notes to a local Hive — One memory. Every agent.](docs/assets/hivemind-cat-banner.png)
 
 **Local shared memory and coordination for any stdio MCP agent.**<br>
-Guided setup registers recognized agent CLIs; other compatible clients connect manually.
+Guided project setup connects 14 common clients; other stdio MCP clients connect manually.
 Keep your preferences, project context, and hard-won solutions in one local folder.
 
 ![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-8EF0CC?style=flat-square&labelColor=101B2C) ![Storage Markdown + SQLite](https://img.shields.io/badge/Storage-Markdown%20%2B%20SQLite-A59FFF?style=flat-square&labelColor=101B2C) ![Interface MCP](https://img.shields.io/badge/Interface-MCP-92B9FF?style=flat-square&labelColor=101B2C) ![Hosting Not required](https://img.shields.io/badge/Hosting-Not%20required-8EF0CC?style=flat-square&labelColor=101B2C) [![License MIT](https://img.shields.io/badge/License-MIT-C9D7E8?style=flat-square&labelColor=101B2C)](LICENSE)
@@ -60,6 +60,26 @@ when your new question uses different words. It joins keyword search inside the
 existing memory tools; the vault remains plain Markdown.
 [Explore semantic memory →](docs/semantic-memory.md)
 
+**Optional free or cheap model learning:** explicitly enable OpenRouter-assisted progress
+summaries, taste and working-style candidates, and source-linked knowledge drafts.
+Native adapters for eight clients record supported activity locally; bounded
+inference suggests learning for review. Free mode has no paid fallback. This feature sends selected activity to
+an external provider and requires an API key. Core memory needs neither.
+[Set up assisted learning →](docs/assisted-learning.md)
+
+**Compact handoffs without another model call:** `hive.py handoff PROJECT` brings
+the last meaningful checkpoint, reported checks, blockers, next actions and new
+local activity into one bounded packet. The recorder coalesces bursts, skips
+empty/checkpoint-only inference and reports actual OpenRouter token usage.
+[Handoff commands →](docs/context-and-sessions.md#structured-handoffs)
+
+**Git-aware continuation:** checkpoints record the branch, commit and a fingerprint
+of staged, unstaged and untracked changes. Resume checks the live worktree before
+the next harness relies on that handoff. Optional recovery snapshots preserve
+bounded file copies; Git metadata alone does not save file contents. HiveMind
+does not automatically commit, push or synchronize code between devices.
+[Git checks and recovery →](docs/context-and-sessions.md#structured-handoffs)
+
 **Current knowledge for the task at hand:** link memory to affected files, mark old
 decisions replaced, and flag competing current claims. Task briefs include relevant
 file-linked notes and dependency evidence. Completed work produces reviewable lessons,
@@ -73,9 +93,9 @@ Goal plans connect tasks into bounded dependency graphs with explicit agent exec
 > memory uses normal context tokens.
 
 **One-command guided setup:** run HiveMind from your project's CMD prompt, pick
-the features you want, and start working. It enrolls the project, registers the
-supported installed agent CLIs, and checks the MCP connection. Your feature choice
-is saved for the next project on this device. [Set up HiveMind →](#quick-start)
+the features and clients you want, and start working. It enrolls the project,
+configures client connections, and checks the MCP bridge. Each project keeps its
+own learning/model/budget choices. [Set up HiveMind →](#quick-start)
 
 ## Quick start
 
@@ -113,16 +133,19 @@ On the first interactive run, choose what to include:
 Semantic recall downloads a local model; Graphify downloads an isolated
 dependency. HiveMind saves your semantic and Graphify choices on this device.
 For the next project, run the same command from that project's CMD prompt; it
-reuses those choices without asking again. The **All** option saves only the
+reuses the local feature choices. A project wizard then asks for clients, settings
+scope, learning mode, OpenRouter model and budget, activity capture, and optional
+project purpose and working preference. A missing API key is entered with hidden
+terminal input and saved privately on this device, outside Git and the vault.
+Existing environment keys are reused. The **All** option saves only the
 working-style answers you actually enter. Setup makes no paid agent call.
 
-Both commands are safe to rerun. Setup enrolls the project, registers each
-installed CLI independently, then opens the local MCP bridge and calls
-`hive_context` without starting an AI session. The final report shows each agent
-as **ready**, **skipped**, or **needs-action**, plus the bridge check and next step.
-A CLI marked ready has its HiveMind entry registered and listed; restart an active
-agent session to load it. A skipped CLI can be installed later, then the same
-setup command will register it. If one CLI fails, the others are still attempted.
+Both commands are safe to rerun. Saved project choices avoid repeated questions;
+`--configure` reopens them. Setup configures each selected client independently,
+then opens the local MCP bridge and calls `hive_context` without starting an AI
+session. The report separates MCP configuration, native capture and headless task
+execution. **Configured** means settings are installed; actual client callbacks
+still need a restart and normal trust. If one adapter fails, the others are attempted.
 Setup succeeds with no recognized CLI when the local bridge passes its probe;
 it prints the command and project-instruction path for another stdio MCP client.
 Choose **5** on a fresh interactive setup, or add `--other-client` to an explicit
@@ -138,7 +161,22 @@ the project you are setting up:
 If you installed HiveMind before the guided menu was added, use `--configure`
 once to set your defaults.
 
-Recognized CLIs need no separate skill or manual MCP configuration. Other clients
+Supported adapters cover Codex, Grok Build, Antigravity, Claude Code, OpenCode,
+Command Code, Gemini CLI, Cursor, Copilot CLI, VS Code, Cline, Roo Code, Continue
+and Windsurf. [Capabilities, scope and configuration paths →](docs/harness-setup.md)
+
+For explicit project setup without questions (using an existing key):
+
+```cmd
+"%USERPROFILE%\HiveMind\hivemind.cmd" "D:\Projects\My App" --no-prompt --harness claude --harness opencode --learning free --daily-limit 100 --capture
+```
+
+You can also run `.venv\Scripts\python.exe hive.py setup PROJECT` from the
+HiveMind folder. Free learning is the default model when enabled; cheap mode
+requires an explicit model, daily dollar ceiling and provider price ceilings.
+Native capture can be off independently of explicit MCP checkpoint learning.
+
+Recognized adapters need no separate skill. Other clients
 need the printed stdio command in their own MCP settings. Restart any agent
 session that was open during setup so it can load the new bridge.
 
@@ -466,6 +504,8 @@ Run these from your HiveMind folder. On Linux substitute `.venv/bin/python`.
 .venv\Scripts\python.exe hive.py offline
 .venv\Scripts\python.exe hive.py context myapp --query "login" --budget 1000
 .venv\Scripts\python.exe hive.py resume myapp
+.venv\Scripts\python.exe hive.py handoff myapp
+.venv\Scripts\python.exe hive.py assist-status --project myapp
 .venv\Scripts\python.exe hive.py history "01-Memory/Solutions/my-fix.md"
 .venv\Scripts\python.exe hive.py memory-audit --project myapp
 .venv\Scripts\python.exe hive.py handoff-search "authentication" --project myapp
@@ -514,8 +554,9 @@ review; nothing automatically merges, pushes, or deploys code.
 
 Tests cover memory conflicts, ownership and leases, worker result handling, MCP
 interoperability, project-rule preservation, offline routing, backup restoration,
-private-vault separation, and a two-process handoff acceptance check. They use
-temporary fixtures and no paid model calls.
+private-vault separation, client setup, recorder batching and crash recovery,
+token accounting, and model-free handoffs. They use temporary fixtures, simulated
+provider responses and local child processes, with no paid model calls.
 
 The protocol suite verifies tool behavior, not a model's instruction compliance.
 Real vendor inference and physical Linux behavior need separate smoke tests.

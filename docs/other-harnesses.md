@@ -4,7 +4,12 @@ HiveMind's memory, sessions, tasks, and messages use a local MCP server. A clien
 does not need to be Codex, Grok Build, or Antigravity to use those tools. It must
 support **stdio MCP** and allow you to give it project instructions.
 
-First enroll the project with the normal HiveMind setup. Choose **5 · Other MCP
+For Codex, Grok, Antigravity, Claude Code, OpenCode, Command Code, Gemini CLI,
+Cursor, Copilot CLI, VS Code, Cline, Roo Code, Continue and Windsurf, use the
+[guided project adapter setup](harness-setup.md). It configures MCP, instructions
+and supported activity capture independently for each selected client.
+
+For an unlisted harness, enroll the project with the normal HiveMind setup. Choose **5 · Other MCP
 client** on the first interactive run, or pass `--other-client` when running the
 setup command explicitly. A working bridge is a successful setup even if none of
 the three recognized CLIs is installed. Then, from the
@@ -50,8 +55,9 @@ can hold instructions specific to that harness.
 If `hive_context` omits `agent`, it uses the neutral `generic` identity and
 returns shared style without assuming Codex-specific instructions.
 
-Automatic registration and headless task execution have verified adapters only
-for Codex, Grok Build, and Antigravity. Other clients can use the MCP tools and
+Headless task execution has verified adapters only for Codex, Grok Build and
+Antigravity. The guided setup now includes configuration adapters for the clients
+listed above. Other clients can use the MCP tools and
 claim explicitly assigned tasks interactively. `session-run` can wrap a different
 CLI when it is on `PATH` or mapped in local `hive.local.json` under `agents`, but
 you must supply that CLI's arguments; the wrapper only captures process exit and
