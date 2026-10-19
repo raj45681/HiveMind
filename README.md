@@ -111,6 +111,37 @@ The vault, checkpoints and private API key stay in that shared HiveMind folder;
 activation files live in the enrolled project. Other folders receive no settings.
 [Project layout, commands and migration →](docs/project-installation.md)
 
+### npm / npx setup
+
+With Node.js 20+ and Python 3.11+ installed, run from your project folder:
+
+```sh
+npx --yes github:raj45681/HiveMind setup
+```
+
+Or add the launcher as a project development dependency:
+
+```sh
+npm install --save-dev github:raj45681/HiveMind
+npx hivemind setup
+```
+
+This is a GitHub package install, not a published npm-registry name. The launcher
+opens the same guided harness, free-model and hidden OpenRouter-key setup.
+`npm install` itself does not run setup or ask for credentials. Python's private
+environment and pinned dependencies are prepared automatically by the setup command.
+Activation remains project-only. The shared backend, vault and keys live outside
+`node_modules` and npm's cache; removing the npm package does not remove memory.
+
+To reuse an existing installation on the first npm run:
+
+```sh
+npx hivemind setup --hive-home "D:\HiveMind"
+```
+
+Later projects reuse the remembered home. See [npm setup and storage](docs/npm-setup.md)
+for requirements, updates and additional options.
+
 ### 1 · Get HiveMind and enroll your project
 
 Open **CMD in the project you want to work on** and paste this single line:
@@ -141,9 +172,11 @@ dependency. HiveMind saves your semantic and Graphify choices on this device.
 For the next project, run the same command from that project's CMD prompt; it
 reuses the local feature choices. A project wizard then asks for clients,
 learning mode, OpenRouter model and budget, activity capture, and optional
-project purpose and working preference. A missing API key is entered with hidden
-terminal input and saved privately on this device, outside Git and the vault.
-Existing environment keys are reused. The **All** option saves only the
+project purpose and working preference. Interactive setup always explicitly asks
+for the OpenRouter API key when learning is enabled, even if one already exists.
+Input is hidden; Enter keeps the existing key or skips entry when none is set.
+Pasted keys are saved privately on this device, outside Git and the vault.
+The **All** option saves only the
 working-style answers you actually enter. Setup makes no paid agent call.
 
 Free learning offers six model choices with automatic free fallback routing.
@@ -151,8 +184,10 @@ Temporary failures retry up to three attempts total, with short backoff and
 OpenRouter's `Retry-After` delays. Every HTTP retry respects the shared request
 budget. See the [model pool and retry policy](docs/assisted-learning.md#model-budgets-and-failure-behavior).
 
-Both commands are safe to rerun. Saved project choices avoid repeated questions;
-`--configure` reopens them. Setup configures each selected client independently,
+Both commands are safe to rerun. Saved project choices avoid repeated option
+questions; the OpenRouter key step remains explicit during interactive learning
+setup. `--configure` reopens the other options; `--no-prompt` skips all questions.
+Setup configures each selected client independently,
 then opens the local MCP bridge and calls `hive_context` without starting an AI
 session. The report separates MCP configuration, native capture and headless task
 execution. **Configured** means settings are installed; actual client callbacks

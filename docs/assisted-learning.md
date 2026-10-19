@@ -14,9 +14,12 @@ learning is a separate, explicit opt-in to outbound inference.
 
 Run `hive.py setup PROJECT` (or the normal `hivemind.cmd` launcher). The wizard
 asks which clients to configure, free/cheap/off learning, model and budget,
-capture/processing choices and optional project tastes. It requests a missing
-OpenRouter key using hidden terminal input and stores it privately on this
-device. Each project can use a different policy. See the
+capture/processing choices and optional project tastes. Interactive setup always
+explicitly asks for the OpenRouter key when learning is enabled. Hidden input
+accepts a key, or Enter keeps the existing key/skips entry if none is configured.
+This also applies to saved-project reruns; `--no-prompt`, dry runs and noninteractive
+setup skip the question. Keys are stored privately on this device in the shared
+Hive installation. Each project can use a different learning policy. See the
 [client setup guide](harness-setup.md) for the 14 adapters and scope details.
 
 ## Legacy free-only enable command

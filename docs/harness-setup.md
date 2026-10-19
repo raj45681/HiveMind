@@ -17,11 +17,16 @@ model leads a free fallback pool, with three HTTP attempts total and short
 backoff that honors `Retry-After`. Existing free configurations receive the
 default pool automatically. See the [model list and retry behavior](assisted-learning.md#model-budgets-and-failure-behavior).
 
-When learning is enabled and no usable key exists, hidden terminal input asks
-for the OpenRouter key. Enter can leave it unset: activity remains queued.
-`--set-key` explicitly replaces a stored key in an interactive terminal. Keys
+Interactive setup always explicitly asks for the OpenRouter key when Free or
+Cheap learning is enabled, including saved projects and existing credentials.
+Input is hidden. Enter keeps an existing key; with no key, Enter skips entry
+and activity remains queued. A pasted key is stored privately for the shared
+Hive installation, so this step needs no special flag. `--no-prompt`, dry runs
+and noninteractive setup never request a key. Learning off skips the step unless
+`--set-key` explicitly requests it in an interactive terminal. Keys
 are never accepted as command arguments, included in client settings, or saved
-in the vault. Environment `OPENROUTER_API_KEY` takes precedence over storage.
+in the vault. Environment `OPENROUTER_API_KEY` takes precedence over storage;
+setup reports when this override remains active after a new key is saved.
 Windows storage uses DPAPI for the current Windows user. Linux uses a private
 0700 directory and 0600 file under `runtime/secrets/`. Move devices by entering
 the key again. Core memory works without any API key.

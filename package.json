@@ -1,0 +1,20 @@
+{
+  "name": "@raj45681/hivemind",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Project setup for HiveMind shared memory and agent handoffs",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/raj45681/HiveMind.git" },
+  "bin": { "hivemind": "bin/hivemind.cjs" },
+  "engines": { "node": ">=20" },
+  "scripts": { "test": "node --test npm/launcher.test.cjs" },
+  "files": [
+    "bin/hivemind.cjs", "npm/launcher.cjs", "bootstrap.py", "hive.py",
+    "hivemind/**/*.py", "requirements.txt", "requirements-graphify.txt",
+    "hivemind.cmd", "setup.ps1", "setup.sh", "install.ps1", "install.sh",
+    "AGENTS.md", "templates/**/*.md", "templates/project/hive", "templates/project/hive.cmd",
+    "templates/project/hive.py", "scripts/*.py", "scripts/*.example",
+    "docs/**/*.md", "docs/assets/*.{gif,png,svg,jpg,jpeg,webp}",
+    "examples/**/*.{json,md,py,yml,yaml,toml,txt}"
+  ]
+}

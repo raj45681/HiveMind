@@ -12,9 +12,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def build_bundle(root, destination, include_state=False):
     root, destination = Path(root).resolve(), Path(destination).resolve()
     names = ("hive.py", "bootstrap.py", "hivemind.cmd", "requirements.txt", "requirements-graphify.txt", "setup.ps1",
-             "setup.sh", "install.ps1", "install.sh", "README.md", "AGENTS.md", ".gitignore", ".gitattributes")
+             "setup.sh", "install.ps1", "install.sh", "README.md", "AGENTS.md", ".gitignore", ".gitattributes",
+             "package.json", "package-lock.json", ".npmignore")
     files = [root / name for name in names if (root / name).is_file()]
-    folders = ("hivemind", "scripts", "tests", "docs", "examples", "templates")
+    folders = ("hivemind", "scripts", "tests", "docs", "examples", "templates", "bin", "npm")
     for folder in folders + (("vault",) if include_state else ()):
         for path in (root / folder).rglob("*"):
             if not path.is_file() or any(p.startswith(".") or p == "__pycache__" for p in path.relative_to(root).parts):

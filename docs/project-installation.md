@@ -8,6 +8,16 @@ remain in the existing shared HiveMind folder.
 
 ## Install from a project folder
 
+With Node.js 20+ and Python 3.11+, you can launch the same wizard through npm:
+
+```sh
+npx --yes github:raj45681/HiveMind setup
+```
+
+Or use `npm install --save-dev github:raj45681/HiveMind`, then `npx hivemind setup`.
+This keeps shared state outside npm's files. See the [npm guide](npm-setup.md)
+to select an existing shared installation or review update behavior.
+
 If HiveMind is already installed, reuse that installation. For example, with
 your shared Hive at `D:\HiveMind`, open CMD in your application's repository root:
 
@@ -41,7 +51,9 @@ starts with a separate empty vault; it is not a copy of your personal knowledge.
 
 The wizard asks for clients, optional local recall/indexing, free/cheap/off
 learning, model, budget, activity capture and optional project preferences. It
-asks privately for a missing OpenRouter key when learning is selected. There is
+always explicitly asks for the OpenRouter key when learning is selected, with
+hidden input. Enter keeps an existing key or skips entry when none is configured.
+This key step also appears on interactive reruns; `--no-prompt` skips it. There is
 no global-scope question. Saved legacy user scope is not silently reused; a
 user-wide adapter requires the explicit advanced `--scope user` option.
 

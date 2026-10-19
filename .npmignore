@@ -1,0 +1,14 @@
+/runtime/
+/vault/
+/cloud/
+/.venv/
+/.git/
+/.hivemind/
+/hive.local.json
+/.env*
+**/__pycache__/
+**/*.pyc
+**/*.db
+**/*.sqlite*
+**/*.key
+**/*.pem

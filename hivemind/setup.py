@@ -123,7 +123,8 @@ def choose(root, project_id, args, *, interactive=None, input_fn=input, output=s
         raise ValueError('--set-key requires an interactive terminal; keys are never accepted as command arguments')
     return {'harnesses': list(dict.fromkeys(names)), 'scope': scope, 'mode': mode, 'model': model,
             'daily_limit': limit, 'capture': capture, 'auto_run': not manual, **costs,
-            'purpose': purpose, 'taste': taste, 'ask_key': bool(args.set_key or (prompt and mode != 'off')),
+            'purpose': purpose, 'taste': taste,
+            'ask_key': bool(args.set_key or (interactive and not args.no_prompt and not args.dry_run and mode != 'off')),
             'replace_key': bool(args.set_key),
             'persist': bool(saved or prompt or explicit), 'model_calls': 0}
 
@@ -133,14 +134,23 @@ def apply(root, project, project_id, choices, *, skip_register=False, secret_fn=
     from . import assisted
     from .credentials import key_status, save_key
     from .store import atomic_write
-    if choices['ask_key'] and (not key_status(root)['available'] or choices.get('replace_key')):
+    if choices['ask_key']:
+        credential = key_status(root)
+        print('\nOpenRouter API key (shared by projects using this HiveMind installation)', file=output)
+        if credential['available']:
+            print('An existing key is available from ' + credential['source'] + '.', file=output)
+        else:
+            print('Enter a key to enable model learning, or skip it for now.', file=output)
+        blank_action = 'keep the existing key' if credential['available'] else 'skip for now'
         # getpass falls back to echoed input on some terminals. Refuse that fallback.
         import warnings
         with warnings.catch_warnings():
             warnings.simplefilter('error', getpass.GetPassWarning)
-            key = secret_fn('OpenRouter API key (hidden; Enter to leave learning queued): ').strip()
+            key = secret_fn(f'OpenRouter API key (hidden; Enter to {blank_action}): ').strip()
         if key:
             save_key(root, key)
+            if credential['source'] == 'environment':
+                print('Key saved privately. OPENROUTER_API_KEY remains active; update or remove it to use the saved key.', file=output)
     policy = {key: choices[key] for key in ('mode', 'model', 'daily_limit', 'auto_run',
                                           'daily_usd', 'prompt_price', 'completion_price')}
     if choices['persist']:

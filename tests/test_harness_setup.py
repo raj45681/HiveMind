@@ -1,5 +1,6 @@
 import base64
 import asyncio
+import getpass
 import io
 import json
 import os
@@ -9,7 +10,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+import warnings
+from unittest.mock import Mock, patch
 
 import bootstrap
 from hivemind import assisted, credentials, harnesses, setup
@@ -244,6 +246,93 @@ class HarnessSetupTests(unittest.TestCase):
                         input_fn=lambda _: next(answers), output=output)
                 self.assertEqual(choices['model'], expected)
                 self.assertIn('6. LiquidAI', output.getvalue())
+
+    def test_interactive_setup_always_prompts_even_with_a_stored_key(self):
+        output = io.StringIO()
+        secret = Mock(return_value='')
+        with patch.dict(os.environ, {}, clear=True), patch('hivemind.setup.inventory', return_value=[]), \
+                patch('hivemind.setup.install', return_value={}):
+            credentials.save_key(self.root, 'fixture-existing-key')
+            path = self.root / 'runtime/secrets/openrouter.json'
+            before = path.read_bytes()
+            choices = setup.choose(self.root, 'alpha', self.args('--learning', 'free'), interactive=True)
+            setup.apply(self.root, self.project, 'alpha', choices, secret_fn=secret, output=output)
+            secret.assert_called_once()
+            self.assertIn('keep the existing key', secret.call_args.args[0])
+            self.assertEqual(path.read_bytes(), before)
+            self.assertEqual(credentials.get_key(self.root), 'fixture-existing-key')
+        self.assertIn('private device storage', output.getvalue())
+        self.assertNotIn('fixture-existing-key', output.getvalue())
+
+    def test_key_prompt_accepts_replacement_and_reports_environment_override(self):
+        output = io.StringIO()
+        secret = Mock(return_value='fixture-new-key')
+        with patch.dict(os.environ, {'OPENROUTER_API_KEY': 'fixture-env-key'}, clear=True), \
+                patch('hivemind.setup.inventory', return_value=[]), patch('hivemind.setup.install', return_value={}):
+            choices = setup.choose(self.root, 'alpha', self.args('--learning', 'free'), interactive=True)
+            setup.apply(self.root, self.project, 'alpha', choices, secret_fn=secret, output=output)
+            secret.assert_called_once()
+            self.assertEqual(credentials.get_key(self.root), 'fixture-env-key')
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(credentials.get_key(self.root), 'fixture-new-key')
+        self.assertIn('OPENROUTER_API_KEY remains active', output.getvalue())
+        for key in ['fixture-new-key', 'fixture-env-key']:
+            self.assertNotIn(key, output.getvalue())
+            self.assertNotIn(key, (self.root / 'hive.local.json').read_text())
+
+    def test_missing_key_can_be_skipped_without_enabling_a_model_call(self):
+        output = io.StringIO()
+        secret = Mock(return_value='')
+        with patch.dict(os.environ, {}, clear=True), patch('hivemind.setup.inventory', return_value=[]), \
+                patch('hivemind.setup.install', return_value={}):
+            choices = setup.choose(self.root, 'alpha', self.args('--learning', 'free'), interactive=True)
+            setup.apply(self.root, self.project, 'alpha', choices, secret_fn=secret, output=output)
+            secret.assert_called_once()
+            self.assertIn('skip for now', secret.call_args.args[0])
+            self.assertFalse(credentials.key_status(self.root)['available'])
+            self.assertEqual(assisted.status(self.hive)['requests_last_24h'], 0)
+        self.assertFalse((self.root / 'runtime/secrets/openrouter.json').exists())
+        self.assertIn('activity remains queued', output.getvalue())
+
+    def test_saved_project_still_shows_the_key_step_without_repeating_other_questions(self):
+        assisted.configure_project(self.root, 'alpha', mode='free', auto_run=False)
+        cfg = assisted.config(self.root)
+        cfg['project_onboarding'] = {'alpha': {'harnesses': [], 'scope': 'project', 'capture': False}}
+        atomic_write(self.root / 'hive.local.json', json.dumps(cfg))
+        with patch('hivemind.setup.inventory', return_value=[]):
+            choices = setup.choose(self.root, 'alpha', self.args(), interactive=True,
+                input_fn=lambda _: self.fail('Saved project options should not reprompt'))
+        self.assertTrue(choices['ask_key'])
+
+    def test_key_prompt_is_suppressed_for_noninteractive_dry_run_and_no_prompt(self):
+        for flags, interactive in [(('--no-prompt',), True), (('--dry-run',), True), ((), False)]:
+            with self.subTest(flags=flags, interactive=interactive), patch('hivemind.setup.inventory', return_value=[]):
+                choices = setup.choose(self.root, 'alpha', self.args('--learning', 'free', *flags),
+                    interactive=interactive, input_fn=lambda _: self.fail('Unexpected prompt'))
+                self.assertFalse(choices['ask_key'])
+        with patch('hivemind.setup.inventory', return_value=[]):
+            off = setup.choose(self.root, 'alpha', self.args('--learning', 'off'), interactive=True)
+        self.assertFalse(off['ask_key'])
+
+    def test_cheap_mode_also_has_the_explicit_key_step(self):
+        with patch('hivemind.setup.inventory', return_value=[]):
+            choices = setup.choose(self.root, 'alpha', self.args('--learning', 'cheap', '--model',
+                'provider/tiny', '--daily-usd', '1', '--prompt-price', '.1', '--completion-price', '.2'),
+                interactive=True)
+        self.assertTrue(choices['ask_key'])
+
+    def test_key_entry_never_falls_back_to_echoed_input(self):
+        def unsafe_input(prompt):
+            warnings.warn('Hidden input unavailable', getpass.GetPassWarning)
+            self.fail('Must stop before reading a key without hidden input')
+        before = (self.root / 'hive.local.json').read_bytes()
+        with patch('hivemind.setup.inventory', return_value=[]), patch('hivemind.setup.install') as install:
+            choices = setup.choose(self.root, 'alpha', self.args('--learning', 'free'), interactive=True)
+            with self.assertRaises(getpass.GetPassWarning):
+                setup.apply(self.root, self.project, 'alpha', choices, secret_fn=unsafe_input, output=io.StringIO())
+            install.assert_not_called()
+        self.assertEqual((self.root / 'hive.local.json').read_bytes(), before)
+        self.assertFalse((self.root / 'runtime/secrets/openrouter.json').exists())
 
     def test_noninteractive_and_dry_run_do_not_prompt_for_keys_or_enable_learning(self):
         for flags in (('--no-prompt',), ('--dry-run',)):
