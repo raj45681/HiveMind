@@ -23,6 +23,19 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class OnboardingTests(unittest.TestCase):
+    def _documented_cmd_install_command(self):
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        blocks = re.findall(r"^```cmd[ \t]*\n(.*?)^```[ \t]*$", readme, re.M | re.S)
+        commands = [block.strip() for block in blocks
+                    if "git clone" in block and "hivemind.cmd" in block]
+        self.assertEqual(len(commands), 1,
+                         "README must document exactly one CMD clone-and-setup example")
+        self.assertNotIn("\n", commands[0], "The CMD quick start must remain a single line")
+        return commands[0]
+
+    def test_documented_one_liner_is_present_on_every_platform(self):
+        self._documented_cmd_install_command()
+
     def test_dependency_free_parent_continues_in_prepared_environment(self):
         with tempfile.TemporaryDirectory(prefix='Hive clean parent ') as tmp:
             base = Path(tmp)
@@ -180,8 +193,7 @@ class OnboardingTests(unittest.TestCase):
 
     @unittest.skipUnless(os.name == "nt", "CMD quick start")
     def test_documented_one_liner_handles_fresh_and_existing_install(self):
-        readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        command = re.search(r"### 1 · Get HiveMind.*?```cmd\n([^\n]+)", readme, re.S).group(1)
+        command = self._documented_cmd_install_command()
         with tempfile.TemporaryDirectory(prefix="Hive onboarding ") as tmp:
             home = Path(tmp) / "Home with spaces"
             bin_dir = Path(tmp) / "fake-bin"
