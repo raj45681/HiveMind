@@ -26,7 +26,7 @@ key in Git, a vault note or a command argument. From the HiveMind folder:
 
 ```powershell
 .\.venv\Scripts\python.exe hive.py assist-enable myapp --daily-limit 1000
-.\.venv\Scripts\python.exe hive.py assist-install-hooks
+.\.venv\Scripts\python.exe hive.py assist-install-hooks --project 'D:\Projects\My App'
 ```
 
 Use `--all-projects` instead of project names to cover all enrolled projects,
@@ -38,8 +38,9 @@ counter cannot report your actual remaining OpenRouter quota.
 
 Restart Codex and Grok Build and review/trust the new HiveMind hooks through
 their native hook controls. Existing hook definitions are preserved and backed
-up under `runtime/adapter-backups/`. Codex uses `~/.codex/hooks.json`; Grok uses
-`~/.grok/hooks/hivemind.json`. Installation does not bypass hook trust. Until
+up under `runtime/adapter-backups/`. Codex uses the project's `.codex/hooks.json`;
+Grok uses the project's `.grok/hooks/hivemind.json`. User-wide hooks require an
+explicit `--scope user`. Installation does not bypass hook trust. Until
 callbacks actually run, native conversation capture is not active.
 
 ## What runs automatically

@@ -3,7 +3,7 @@
 ![HiveMind cats and ants carrying notes to a local Hive — One memory. Every agent.](docs/assets/hivemind-cat-banner.png)
 
 **Local shared memory and coordination for any stdio MCP agent.**<br>
-Guided project setup connects 14 common clients; other stdio MCP clients connect manually.
+Guided setup activates HiveMind inside enrolled projects while keeping one shared vault.
 Keep your preferences, project context, and hard-won solutions in one local folder.
 
 ![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-8EF0CC?style=flat-square&labelColor=101B2C) ![Storage Markdown + SQLite](https://img.shields.io/badge/Storage-Markdown%20%2B%20SQLite-A59FFF?style=flat-square&labelColor=101B2C) ![Interface MCP](https://img.shields.io/badge/Interface-MCP-92B9FF?style=flat-square&labelColor=101B2C) ![Hosting Not required](https://img.shields.io/badge/Hosting-Not%20required-8EF0CC?style=flat-square&labelColor=101B2C) [![License MIT](https://img.shields.io/badge/License-MIT-C9D7E8?style=flat-square&labelColor=101B2C)](LICENSE)
@@ -94,8 +94,9 @@ Goal plans connect tasks into bounded dependency graphs with explicit agent exec
 
 **One-command guided setup:** run HiveMind from your project's CMD prompt, pick
 the features and clients you want, and start working. It enrolls the project,
-configures client connections, and checks the MCP bridge. Each project keeps its
-own learning/model/budget choices. [Set up HiveMind →](#quick-start)
+configures project connections, and checks the MCP bridge. Each project keeps its
+own learning/model/budget choices. User-wide client registration is never a fallback.
+[Set up HiveMind →](#quick-start)
 
 ## Quick start
 
@@ -104,6 +105,11 @@ setup can register recognized installed CLIs; other clients use the manual
 connection details. The first setup downloads the Python dependencies. This source
 repository is public, so cloning it needs no GitHub sign-in. Your personal vault
 and device credentials remain local and are excluded from Git.
+
+Install the HiveMind software once, then opt in from each project's folder.
+The vault, checkpoints and private API key stay in that shared HiveMind folder;
+activation files live in the enrolled project. Other folders receive no settings.
+[Project layout, commands and migration →](docs/project-installation.md)
 
 ### 1 · Get HiveMind and enroll your project
 
@@ -133,8 +139,8 @@ On the first interactive run, choose what to include:
 Semantic recall downloads a local model; Graphify downloads an isolated
 dependency. HiveMind saves your semantic and Graphify choices on this device.
 For the next project, run the same command from that project's CMD prompt; it
-reuses the local feature choices. A project wizard then asks for clients, settings
-scope, learning mode, OpenRouter model and budget, activity capture, and optional
+reuses the local feature choices. A project wizard then asks for clients,
+learning mode, OpenRouter model and budget, activity capture, and optional
 project purpose and working preference. A missing API key is entered with hidden
 terminal input and saved privately on this device, outside Git and the vault.
 Existing environment keys are reused. The **All** option saves only the
@@ -146,6 +152,9 @@ then opens the local MCP bridge and calls `hive_context` without starting an AI
 session. The report separates MCP configuration, native capture and headless task
 execution. **Configured** means settings are installed; actual client callbacks
 still need a restart and normal trust. If one adapter fails, the others are attempted.
+Codex and Grok use project-local MCP configuration and hooks. Cline CLI uses a
+project launcher; Antigravity and Windsurf use the local CLI fallback because
+their current adapters do not provide native project-only MCP activation.
 Setup succeeds with no recognized CLI when the local bridge passes its probe;
 it prints the command and project-instruction path for another stdio MCP client.
 Choose **5** on a fresh interactive setup, or add `--other-client` to an explicit
@@ -160,6 +169,19 @@ the project you are setting up:
 
 If you installed HiveMind before the guided menu was added, use `--configure`
 once to set your defaults.
+
+After enrollment, use the helper inside your project:
+
+```cmd
+.hivemind\hive.cmd handoff
+.hivemind\hive.cmd context --query "current task"
+.hivemind\hive.cmd setup --configure
+```
+
+The helper supplies the project ID and follows the ignored local pointer to the
+same shared vault. On Linux use `python3 .hivemind/hive.py` or `bash .hivemind/hive`.
+Existing global registrations from older releases require the explicit
+[one-time migration](docs/project-installation.md#migrate-an-existing-global-installation).
 
 Supported adapters cover Codex, Grok Build, Antigravity, Claude Code, OpenCode,
 Command Code, Gemini CLI, Cursor, Copilot CLI, VS Code, Cline, Roo Code, Continue
@@ -258,7 +280,8 @@ locally; the portable code has not yet been exercised on a physical Linux device
 
 ### 2 · Restart your agent session
 
-Setup registers the `hivemind` MCP bridge with installed CLI adapters it recognizes.
+Setup writes project-local connections for supported clients and reports launcher
+or CLI fallbacks for the others. It never silently edits user-wide client settings.
 It adds a managed workflow to `AGENTS.md`, handles an existing
 `AGENTS.override.md`, and adds a pointer to an existing `GEMINI.md`.
 

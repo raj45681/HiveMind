@@ -10,7 +10,7 @@ $hiveRoot = $PSScriptRoot
 $hivePython = Join-Path $hiveRoot '.venv/Scripts/python.exe'
 if (-not (Test-Path -LiteralPath $hivePython)) {
     if ($Preview) { throw 'Run setup.ps1 once before previewing project installation.' }
-    & (Join-Path $hiveRoot 'setup.ps1') -SkipRegister
+    & (Join-Path $hiveRoot 'setup.ps1') $Project -SkipRegister
 }
 if (-not (Test-Path -LiteralPath $hivePython)) { throw 'HiveMind Python environment is missing.' }
 if (-not $Preview -and $MemoryUrl) {

@@ -22,8 +22,26 @@ def config_locations(home):
     }
 
 
-def register_agents(root=ROOT, python=sys.executable):
+def register_agents(root=ROOT, python=sys.executable, project=None, scope='project'):
     root = Path(root).resolve()
+    if scope == 'project':
+        # Native project files avoid invoking a vendor CLI that may edit user config.
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        from hivemind.harnesses import install_mcp
+        project = Path(project or Path.cwd()).resolve()
+        results = {}
+        for name, exe_name in AGENTS.items():
+            if not shutil.which(exe_name):
+                results[name] = {'status': 'skipped', 'detail': 'CLI not on PATH'}
+                continue
+            try:
+                results[name] = install_mcp(root, project, name, scope='project', python=python)
+            except (OSError, ValueError) as exc:
+                results[name] = {'status': 'needs-action', 'detail': str(exc)[:500]}
+        return results
+    if scope != 'user':
+        raise ValueError('Choose project or user scope')
     backup = root / "runtime" / "config-backups" / datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     locations = config_locations(Path.home())
     results = {}
@@ -62,8 +80,11 @@ def register_agents(root=ROOT, python=sys.executable):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--json", action="store_true", help="Print machine-readable per-agent results")
+    parser.add_argument('--root', type=Path, default=ROOT)
+    parser.add_argument('--project', type=Path, default=Path.cwd())
+    parser.add_argument('--scope', choices=('project', 'user'), default='project')
     args = parser.parse_args()
-    results = register_agents()
+    results = register_agents(args.root, project=args.project, scope=args.scope)
     if args.json:
         print(json.dumps(results))
     else:

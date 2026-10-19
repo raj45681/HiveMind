@@ -38,7 +38,7 @@ class OnboardingTests(unittest.TestCase):
                 shutil.copy2(ROOT / name, bundle / name)
             shutil.copytree(ROOT / 'hivemind', bundle / 'hivemind',
                             ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
-            shutil.copytree(ROOT / 'templates/vault', bundle / 'templates/vault')
+            shutil.copytree(ROOT / 'templates', bundle / 'templates')
             try:
                 (bundle / '.venv').symlink_to(ROOT / '.venv', target_is_directory=True)
             except OSError:
@@ -72,7 +72,7 @@ class OnboardingTests(unittest.TestCase):
                 shutil.copy2(ROOT / name, bundle / name)
             shutil.copytree(ROOT / "hivemind", bundle / "hivemind",
                             ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-            shutil.copytree(ROOT / "templates/vault", bundle / "templates/vault")
+            shutil.copytree(ROOT / "templates", bundle / "templates")
             try:
                 (bundle / ".venv").symlink_to(ROOT / ".venv", target_is_directory=True)
             except OSError:
@@ -82,7 +82,11 @@ class OnboardingTests(unittest.TestCase):
                                         stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertIn("MCP bridge: ready", result.stdout)
-                self.assertIn(f"Project: ready ({0 if attempt else 5} file changes)", result.stdout)
+                self.assertIn("Project: ready", result.stdout)
+                if attempt:
+                    self.assertIn("Project: ready (0 file changes)", result.stdout)
+                for helper in ('hive.py', 'hive.cmd', 'hive'):
+                    self.assertTrue((project / '.hivemind' / helper).is_file())
             self.assertEqual((project / "AGENTS.md").read_text(encoding="utf-8").count("<!-- HIVEMIND:BEGIN -->"), 1)
             config = json.loads((bundle / "hive.local.json").read_text(encoding="utf-8"))
             self.assertEqual(config["onboarding_defaults"], {"graphify": False, "semantic": False})
@@ -209,7 +213,7 @@ class OnboardingTests(unittest.TestCase):
             with patch("scripts.register_agents.shutil.which", side_effect=lambda name: name + "-exe"), \
                     patch("scripts.register_agents.config_locations", return_value={name: [] for name in ("codex", "grok", "antigravity")}), \
                     patch("scripts.register_agents.subprocess.run", side_effect=run):
-                results = register_agents(tmp, sys.executable)
+                results = register_agents(tmp, sys.executable, scope='user')
             self.assertEqual(results["codex"]["status"], "needs-action")
             self.assertEqual(results["grok"]["status"], "ready")
             self.assertEqual(results["antigravity"]["status"], "ready")

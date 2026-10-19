@@ -70,11 +70,12 @@ def _safe(path, boundary):
     return path
 
 
-def _write(root, path, text, original):
+def _write(root, path, text, original, *, preserve_bytes=False):
     from .store import atomic_write
     if text == original:
         return False
-    current = path.read_text(encoding='utf-8-sig') if path.exists() else None
+    current = (path.read_bytes().decode('utf-8') if preserve_bytes else
+               path.read_text(encoding='utf-8-sig')) if path.exists() else None
     if current != original:
         raise ValueError('Configuration changed during setup; rerun to merge the current version')
     if original is not None:
@@ -116,8 +117,13 @@ def _server(body, key, value):
 
 
 def mcp_target(name, project, home, scope):
+    if scope not in {'project', 'user'}:
+        raise ValueError('Choose project or user scope')
+    if scope == 'project' and name in {'antigravity', 'cline', 'windsurf'}:
+        return project / '.hivemind/clients' / (name + '.json'), project
     base = project if scope == 'project' else home
-    paths = {'claude': '.mcp.json' if scope == 'project' else '.claude.json',
+    paths = {'codex': '.codex/config.toml', 'grok': '.grok/config.toml',
+             'claude': '.mcp.json' if scope == 'project' else '.claude.json',
              'commandcode': '.mcp.json' if scope == 'project' else '.commandcode/mcp.json',
              'antigravity': '.gemini/config/mcp_config.json', 'gemini': '.gemini/settings.json',
              'cursor': '.cursor/mcp.json', 'copilot': '.mcp.json' if scope == 'project' else '.copilot/mcp-config.json',
@@ -125,14 +131,11 @@ def mcp_target(name, project, home, scope):
              'opencode': 'opencode.json' if scope == 'project' else '.config/opencode/opencode.json',
              'vscode': '.vscode/mcp.json', 'windsurf': '.codeium/windsurf/mcp_config.json',
              'cline': '.cline/data/settings/cline_mcp_settings.json'}
-    # These clients only offer the documented global file adapter here.
-    if name in {'antigravity', 'windsurf', 'cline'}:
-        base = home
     if name == 'roo':
         base = project
     if name == 'vscode' and scope == 'user':
         return home / '.copilot/mcp-config.json', home
-    if name == 'cline':
+    if name == 'cline' and scope == 'user':
         roaming = Path(os.environ.get('APPDATA', str(home / 'AppData/Roaming'))) if home == Path.home().resolve() else home / 'AppData/Roaming'
         for storage in (roaming / 'Code/User/globalStorage', home / '.config/Code/User/globalStorage'):
             candidate = storage / 'saoudrizwan.claude-dev/settings/cline_mcp_settings.json'
@@ -141,11 +144,51 @@ def mcp_target(name, project, home, scope):
     return base / paths[name], base
 
 
+def update_toml_mcp(root, target, command, boundary):
+    """Manage one named table, preserving all TOML outside our marked block."""
+    target = _safe(target, boundary)
+    original = target.read_bytes().decode('utf-8') if target.exists() else None
+    current = original or ''
+    parsed = tomllib.loads(current.lstrip('\ufeff'))
+    begin, end = '# HIVEMIND:MCP:BEGIN', '# HIVEMIND:MCP:END'
+    if current.count(begin) != current.count(end) or current.count(begin) > 1:
+        raise ValueError('Malformed HiveMind TOML markers; existing configuration preserved')
+    servers = parsed.get('mcp_servers', {})
+    if not isinstance(servers, dict):
+        raise ValueError('Unsupported MCP table shape; existing configuration preserved')
+    entry = servers.get('hivemind')
+    if begin not in current and entry is not None:
+        if isinstance(entry, dict) and entry.get('command') == command[0] and entry.get('args') == command[1:]:
+            return False
+        raise ValueError('An unmanaged hivemind MCP table exists; preserved. Merge client-info manually.')
+    newline = '\r\n' if '\r\n' in current else '\n'
+    block = newline.join((begin, '[mcp_servers.hivemind]',
+        'command = ' + json.dumps(command[0], ensure_ascii=False),
+        'args = ' + json.dumps(command[1:], ensure_ascii=False), end))
+    if begin in current:
+        first, last = current.index(begin), current.index(end)
+        if last < first:
+            raise ValueError('Malformed HiveMind TOML markers; existing configuration preserved')
+        owned = tomllib.loads(current[first + len(begin):last])
+        if not isinstance(entry, dict) or owned != {'mcp_servers': {'hivemind': entry}} or set(entry) != {'command', 'args'}:
+            raise ValueError('HiveMind TOML block has custom settings; preserved for manual merge')
+        text = current[:first] + block + current[last + len(end):]
+    else:
+        text = current + (newline if current and not current.endswith('\n') else '') + block + newline
+    tomllib.loads(text.lstrip('\ufeff'))
+    return _write(root, target, text, original, preserve_bytes=True)
+
+
 def install_mcp(root, project, name, scope='project', home=None, python=None):
     from .store import atomic_write
     root, project, home = Path(root).resolve(), Path(project).resolve(), Path(home or Path.home()).resolve()
     python = str(python or sys.executable)
     command = [python, str(Path(__file__).resolve().parents[1] / 'hive.py'), '--root', str(root), 'serve']
+    if scope == 'project' and name in {'codex', 'grok'}:
+        target, boundary = mcp_target(name, project, home, scope)
+        changed = update_toml_mcp(root, target, command, boundary)
+        return {'status': 'configured', 'scope': 'project', 'path': str(target), 'changed': changed,
+                'detail': 'Project MCP configured; restart in this project and grant normal workspace trust'}
     if name in {'codex', 'grok'}:
         # Their supported CLI owns TOML parsing. Registration is user-scoped.
         exe = executable(name)
@@ -184,6 +227,11 @@ def install_mcp(root, project, name, scope='project', home=None, python=None):
     elif name == 'vscode' and scope == 'project':
         key, value = 'servers', {**value, 'type': 'stdio'}
     changed = update_json(root, target, lambda body: _server(body, key, value), boundary)
+    if scope == 'project' and name in {'antigravity', 'cline', 'windsurf'}:
+        return {'status': 'launcher' if name == 'cline' else 'cli-fallback', 'scope': 'project',
+                'path': str(target), 'changed': changed,
+                'detail': 'Use .hivemind/hive.py launch cline for a process-local MCP connection; the IDE adapter remains global-only'
+                if name == 'cline' else 'No native project MCP adapter: use .hivemind/hive.py context/resume/handoff; global settings were not changed'}
     return {'status': 'configured', 'detail': 'configuration written; restart and approve MCP in the client',
             'path': str(target), 'changed': changed, 'scope': 'user' if boundary == home else 'project'}
 
@@ -220,6 +268,8 @@ def command_string(root, agent, python=None):
 
 def install_capture(root, agent, project=None, home=None, scope='project', python=None):
     home = Path(home or Path.home()).resolve()
+    if scope == 'project' and project is None:
+        raise ValueError('Project capture needs a project directory; pass --project or use project setup')
     base = Path(project).resolve() if project is not None and scope == 'project' else home
     if agent == 'opencode':
         from .opencode_plugin import plugin_source
@@ -235,13 +285,11 @@ def install_capture(root, agent, project=None, home=None, scope='project', pytho
                  'cursor': '.cursor/hooks.json'}
         if agent not in paths:
             return {'status': 'mcp-only', 'detail': 'Agent saves explicit session checkpoints through MCP; no native capture adapter'}
-        if agent in {'codex', 'grok'}:
-            base = home
         if agent == 'antigravity' and base == home:
             path = home / '.gemini/config/hooks.json'
         else:
             path = base / paths[agent]
-        if agent == 'codex' and home == Path.home().resolve():
+        if agent == 'codex' and scope == 'user' and home == Path.home().resolve():
             path = Path(os.environ.get('CODEX_HOME', str(home / '.codex'))) / 'hooks.json'
             base = path.parent
         events = {

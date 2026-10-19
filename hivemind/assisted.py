@@ -927,7 +927,7 @@ def hook(root, agent, payload):
     return result
 
 
-def install_hooks(root, agents=('codex', 'grok'), home=None, project=None, scope='user'):
+def install_hooks(root, agents=('codex', 'grok'), home=None, project=None, scope='project'):
     from .harnesses import install_capture
     results = []
     for agent in agents:

@@ -59,7 +59,7 @@ class HarnessSetupTests(unittest.TestCase):
     def test_cline_discovers_existing_extension_config(self):
         path = self.home / 'AppData/Roaming/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json'
         atomic_write(path, '{"mcpServers":{"other":{"command":"keep"}}}')
-        result = harnesses.install_mcp(self.root, self.project, 'cline', home=self.home)
+        result = harnesses.install_mcp(self.root, self.project, 'cline', scope='user', home=self.home)
         self.assertEqual(Path(result['path']), path)
         self.assertIn('other', json.loads(path.read_text())['mcpServers'])
 
@@ -210,7 +210,7 @@ class HarnessSetupTests(unittest.TestCase):
         self.assertEqual(list(self.project.rglob('*')), [])
 
     def test_guided_setup_asks_for_hidden_key_and_saves_project_taste(self):
-        answers = iter(['claude,opencode', 'project', 'free', '', '25', 'yes', 'manual',
+        answers = iter(['claude,opencode', 'free', '', '25', 'yes', 'manual',
                         'An offline note manager', 'Keep explanations short'])
         with patch('hivemind.setup.inventory', return_value=[]):
             choices = setup.choose(self.root, 'alpha', self.args(), interactive=True,

@@ -6,7 +6,7 @@ HiveMind folder, `python bootstrap.py /path/to/project` and `python hive.py setu
 installation. No agent or inference request is launched by setup.
 
 The initial local feature menu selects core memory, semantic recall and/or code
-graphs. Each new project then chooses its clients, native settings scope,
+graphs. Each new project then chooses its clients,
 learning mode, model and request budget, native activity capture, automatic or
 manual inference, and optional purpose and working preference. Blank optional
 answers save nothing. Project preferences remain scoped to that project.
@@ -28,9 +28,9 @@ is reported **configured**, not proof of an end-to-end vendor session.
 
 | Client ID | MCP settings, default scope | Native activity capture | Hive headless worker |
 | --- | --- | --- | --- |
-| `codex` | User config through `codex mcp add` | User hooks: prompts, tools, final response and boundaries | Yes |
-| `grok` | User config through `grok mcp add` | User hooks: prompts, tools, final response and boundaries | Yes |
-| `antigravity` | User `~/.gemini/config/mcp_config.json` | Project `.agents/hooks.json`: tools and lifecycle; chat checkpoint via MCP | Yes |
+| `codex` | Project `.codex/config.toml` | Project `.codex/hooks.json`: prompts, tools, final response and boundaries | Yes |
+| `grok` | Project `.grok/config.toml` | Project `.grok/hooks/hivemind.json`: prompts, tools, final response and boundaries | Yes |
+| `antigravity` | Project instructions + local CLI fallback; no global MCP write | Project `.agents/hooks.json`: tools and lifecycle | Yes |
 | `claude` | Project `.mcp.json`; user `~/.claude.json` | `.claude/settings.json`: prompts, tools, available final response and boundaries | Manual client |
 | `opencode` | Project `opencode.json`; user `~/.config/opencode/opencode.json` | Local plugin: visible user/assistant text batched at session idle | Manual client |
 | `commandcode` | Project `.mcp.json`; user `~/.commandcode/mcp.json` | `.commandcode/settings.json`: tools/lifecycle; chat checkpoint via MCP | Manual client |
@@ -38,17 +38,20 @@ is reported **configured**, not proof of an end-to-end vendor session.
 | `cursor` | `.cursor/mcp.json` | `.cursor/hooks.json`: prompts, tools, visible final response and boundaries | Manual client |
 | `copilot` | Project `.mcp.json`; user `~/.copilot/mcp-config.json` | Explicit MCP checkpoints | Manual client |
 | `vscode` | Project `.vscode/mcp.json`; user Copilot global config | Explicit MCP checkpoints | Manual client |
-| `cline` | Existing VS Code extension settings when found; otherwise Cline CLI user settings | Explicit MCP checkpoints | Manual client |
+| `cline` | Project `.hivemind/clients/cline.json` through `hive.py launch cline`; IDE uses local CLI fallback | Explicit checkpoints | Manual client |
 | `roo` | `.roo/mcp.json` | Explicit MCP checkpoints | Manual client |
 | `continue` | `.continue/mcpServers/hivemind.json` | Explicit MCP checkpoints | Manual client |
-| `windsurf` | User `~/.codeium/windsurf/mcp_config.json` | Explicit MCP checkpoints | Manual client |
+| `windsurf` | Project instructions + local CLI fallback; no global MCP write | Explicit CLI checkpoints | Manual client |
 
-`--scope user` uses documented global locations where available. Roo remains a
-project MCP adapter; install it with project scope. Codex/Grok hooks and
-Codex/Grok/Antigravity/Cline/Windsurf MCP configuration are user-scoped even in
-project setup. Learning and capture eligibility are still checked per project.
-For Cline installations in another IDE/profile, use `client-info` in that IDE's
-MCP settings if setup cannot locate its existing extension settings.
+Project scope is strict: no adapter falls back to a user-wide file. Codex and
+Grok MCP settings and hooks stay inside the project, subject to normal trust.
+The wizard does not ask for global scope or reuse a legacy saved global choice.
+The advanced `--scope user` option is an explicit opt-in for existing user-wide
+adapters; Roo still uses project scope. Cline CLI can be started through the
+project helper with a child-only `CLINE_MCP_SETTINGS_PATH` override. Its IDE
+extension, Antigravity and Windsurf use project instructions and local CLI access
+when no native project-only MCP adapter is available. See the
+[installation and migration guide](project-installation.md).
 
 Only Codex, Grok Build and Antigravity have verified Hive task execution
 adapters. The other clients can continue the project interactively using MCP.

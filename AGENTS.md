@@ -22,6 +22,10 @@ Do not launch paid agent sessions merely to run unit tests.
 
 This project is enrolled in HiveMind as `hivemind`. Apply this workflow during normal
 work without waiting for the user to say 'use HiveMind'. Keep existing project rules.
+Activation belongs to this project; the memory vault stays shared. If the client
+has no native project MCP connection, use `python .hivemind/hive.py context --query
+"task topic"`, `resume` and `handoff` for local access to the same shared memory.
+The project CLI inserts this project's ID. Run it with `--help` for other commands.
 
 Before substantial work:
 - Call `hive_context` with project=`hivemind`, your stable lowercase harness ID as

@@ -34,6 +34,10 @@ def instructions(name):
 
 This project is enrolled in HiveMind as `{name}`. Apply this workflow during normal
 work without waiting for the user to say 'use HiveMind'. Keep existing project rules.
+Activation belongs to this project; the memory vault stays shared. If the client
+has no native project MCP connection, use `python .hivemind/hive.py context --query
+"task topic"`, `resume` and `handoff` for local access to the same shared memory.
+The project CLI inserts this project's ID. Run it with `--help` for other commands.
 
 Before substantial work:
 - Call `hive_context` with project=`{name}`, your stable lowercase harness ID as
@@ -177,18 +181,30 @@ def prepare(root, project, name=""):
                                        "workflow": "automatic", "memory_root": f"03-Projects/{name}"}, indent=2) + "\n"
     ignore_path = checked_path(project, ".gitignore")
     ignore = read_text(ignore_path)
-    addition = "/.hivemind/local.json"
-    if addition not in ignore.splitlines():
-        newline = "\r\n" if "\r\n" in ignore else "\n"
-        ignore += (newline if ignore and not ignore.endswith("\n") else "") + addition + newline
+    for addition in ("/.hivemind/local.json", "/.hivemind/clients/"):
+        if addition not in ignore.splitlines():
+            newline = "\r\n" if "\r\n" in ignore else "\n"
+            ignore += (newline if ignore and not ignore.endswith("\n") else "") + addition + newline
     changes[ignore_path] = ignore
     changes[checked_path(project, ".hivemind/local.json")] = json.dumps({"hive_home": str(root)}, indent=2) + "\n"
+    for filename in ('hive.py', 'hive.cmd', 'hive'):
+        path = checked_path(project, '.hivemind/' + filename)
+        if path.exists() and 'HiveMind managed project CLI' not in read_text(path)[:160]:
+            raise ValueError(f'An unrelated {path.name} project helper exists; preserved')
+        template = Path(__file__).resolve().parents[1] / 'templates/project' / filename
+        changes[path] = template.read_text(encoding='utf-8')
     changes[checked_path(project, ".hivemind/README.md")] = (
         f"# HiveMind project: {name}\n\n"
         "The managed section in root AGENTS.md enables the shared-memory workflow.\n"
         "Commit AGENTS.md and project.json to carry instructions and identity with the repo.\n"
-        "Run the installer once on each device to register its MCP bridge and local path.\n"
+        "Run the installer once on each device to configure project-only activation.\n"
         "local.json is device-specific and ignored by Git; no credentials are stored here.\n\n"
+        "Memory, checkpoints, model policies and private keys stay in the shared Hive folder.\n"
+        "Use `python .hivemind/hive.py handoff`, `context --query TOPIC`, `resume`, or\n"
+        "`setup --configure` from the project. Windows also has `.hivemind\\hive.cmd`;\n"
+        "Linux has `bash .hivemind/hive`. Commands insert the current project ID.\n"
+        "Cline CLI can use `launch cline`; the MCP override applies only to that process.\n"
+        "A shared vault is not a security boundary between enrolled projects.\n\n"
         "Restart existing agent sessions after installation. Project trust and normal MCP\n"
         "permission prompts still apply. No background models are launched by installation.\n")
     changes = {p: text for p, text in changes.items() if not p.exists() or read_text(p) != text}
@@ -235,7 +251,8 @@ async def attach(root, project, name="", skip_register=False, dry_run=False):
                 if "Note changed" not in str(exc):
                     raise
     if not skip_register:
-        result = subprocess.run([sys.executable, str(root / "scripts" / "register_agents.py")],
+        result = subprocess.run([sys.executable, str(Path(__file__).resolve().parents[1] / "scripts/register_agents.py"),
+                                 '--root', str(root), '--project', str(project)],
                                 capture_output=True, text=True)
         if result.returncode:
             raise ValueError("Agent registration failed; project files were not edited. " + result.stderr.strip())

@@ -11,7 +11,7 @@ from .harnesses import HARNESS, install, inventory
 def add_arguments(parser):
     parser.add_argument('--harness', action='append', choices=(*HARNESS, 'auto', 'all'),
                         help='Select clients; repeat, use auto to detect, or all to generate every adapter')
-    parser.add_argument('--scope', choices=('project', 'user'), help='Native settings scope; default project where supported')
+    parser.add_argument('--scope', choices=('project', 'user'), help='Default: project only. User-wide registration requires explicit --scope user')
     parser.add_argument('--learning', choices=('off', 'free', 'cheap'), help='Set learning for this project only')
     parser.add_argument('--model', help='OpenRouter model ID; free mode defaults to openrouter/free')
     parser.add_argument('--daily-limit', type=int, help='Project request ceiling per rolling 24 hours (1-1000)')
@@ -48,7 +48,8 @@ def choose(root, project_id, args, *, interactive=None, input_fn=input, output=s
         names = detected
     mode = getattr(args, 'learning', None) or ('cheap' if current.get('mode') == 'cheap' else
             'free' if assisted.enabled(root, project_id) else 'off')
-    scope = getattr(args, 'scope', None) or saved.get('scope', 'project')
+    # A prior user-scoped choice must never silently enable global activation.
+    scope = getattr(args, 'scope', None) or 'project'
     model = getattr(args, 'model', None) or current['model']
     if mode == 'free' and not getattr(args, 'model', None) and model != 'openrouter/free' and not model.endswith(':free'):
         model = 'openrouter/free'
@@ -78,10 +79,7 @@ def choose(root, project_id, args, *, interactive=None, input_fn=input, output=s
             if names and all(name in HARNESS for name in names):
                 break
             print('Choose IDs from the list above.', file=output)
-        while True:
-            scope = _ask(input_fn, 'Client settings scope (project/user)', scope)
-            if scope in {'project', 'user'}:
-                break
+        print('Activation: this project only. Shared memory stays in the existing Hive folder.', file=output)
         print('Learning sends redacted activity to OpenRouter. AI taste/style suggestions wait for local review.', file=output)
         while True:
             mode = _ask(input_fn, 'Learning (off/free/cheap)', mode)

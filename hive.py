@@ -24,6 +24,8 @@ def parser():
     sub.add_parser('setup', parents=[bootstrap.build_parser(add_help=False)],
                    help='Guided setup for a project: harnesses, activity capture and OpenRouter learning')
     sub.add_parser('harnesses', help='List supported harnesses, detection and capture capabilities')
+    s = sub.add_parser('global-cleanup', help='Preview removal of only this Hive installation\'s global MCP entries and hooks')
+    s.add_argument('--apply', action='store_true', help='Apply the previewed removal with private config backups')
     sub.add_parser("init", help="Initialize local coordinator and note index")
     s = sub.add_parser("doctor", help="Check local tools and coordinator access without model usage")
     s.add_argument("--human", action="store_true", help="Show a readable summary and repair commands instead of JSON")
@@ -87,8 +89,8 @@ def parser():
     s = sub.add_parser('assist-install-hooks', help='Install reviewed-command hooks while preserving existing client hooks')
     from hivemind.harnesses import HARNESS
     s.add_argument('--agent', choices=tuple(HARNESS), action='append')
-    s.add_argument('--project', type=Path)
-    s.add_argument('--scope', choices=('project', 'user'), default='user')
+    s.add_argument('--project', type=Path, default=Path.cwd())
+    s.add_argument('--scope', choices=('project', 'user'), default='project')
     s = sub.add_parser('assist-hook', help=argparse.SUPPRESS)
     s.add_argument('--agent', choices=tuple(HARNESS), required=True)
     s.add_argument('--event', default='')
@@ -286,6 +288,11 @@ async def execute(args):
         from hivemind.benchmark import run
         return await run(root, args.distractors, args.semantic)
     url, token, config = connection(root)
+    if args.cmd == 'global-cleanup':
+        if url:
+            raise ValueError('Migrate global activation on the local Hive authority')
+        from hivemind.project_scope import cleanup
+        return cleanup(root, args.apply)
     if args.cmd == 'handoff':
         if url:
             raise ValueError('Build the handoff on the local Hive authority')
@@ -627,7 +634,7 @@ def main():
         sys.exit(1)
     if args.cmd == "verify" and not result["ok"]:
         sys.exit(1)
-    if args.cmd == "doctor" and not result["ok"]:
+    if args.cmd in {"doctor", "global-cleanup"} and not result["ok"]:
         sys.exit(1)
     if args.cmd == "benchmark" and args.check and not result["ok"]:
         sys.exit(1)

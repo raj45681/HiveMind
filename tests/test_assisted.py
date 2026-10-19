@@ -205,10 +205,10 @@ class AssistedTests(unittest.TestCase):
         path = home / '.codex/hooks.json'
         original = {'hooks': {'Stop': [{'hooks': [{'type': 'command', 'command': 'existing-script'}]}]}}
         atomic_write(path, json.dumps(original))
-        first = assisted.install_hooks(self.root, home=home)
+        first = assisted.install_hooks(self.root, home=home, scope='user')
         self.assertTrue(all(item['changed'] for item in first['hooks']))
         self.assertIn('existing-script', path.read_text())
-        self.assertFalse(any(item['changed'] for item in assisted.install_hooks(self.root, home=home)['hooks']))
+        self.assertFalse(any(item['changed'] for item in assisted.install_hooks(self.root, home=home, scope='user')['hooks']))
         backups = list((self.root / 'runtime/adapter-backups').glob('*.json'))
         self.assertTrue(any(json.loads(path.read_text()) == original for path in backups))
 
@@ -254,8 +254,8 @@ class AssistedTests(unittest.TestCase):
 
     def test_exact_installed_hook_command_executes_with_space_paths_and_neutral_output(self):
         home = self.root / 'new home'
-        assisted.install_hooks(self.root, agents=['codex'], home=home)
-        body = json.loads((home / '.codex/hooks.json').read_text())
+        assisted.install_hooks(self.root, agents=['codex'], project=self.root, home=home)
+        body = json.loads((self.root / '.codex/hooks.json').read_text())
         command = body['hooks']['UserPromptSubmit'][0]['hooks'][0]['command']
         result = subprocess.run(command, shell=True, input=json.dumps({'hook_event_name': 'UserPromptSubmit',
                                 'cwd': str(self.root), 'session_id': 'cli-fixture',

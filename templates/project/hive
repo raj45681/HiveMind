@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# HiveMind managed project CLI
+set -euo pipefail
+hive_project_cli="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/hive.py"
+exec python3 "$hive_project_cli" "$@"

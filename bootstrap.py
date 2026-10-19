@@ -148,7 +148,7 @@ def main():
             print(f"  {name}: MCP {result['mcp']['status']}; capture {result['capture']['status']}; "
                   f"task execution {'available' if result['task_execution'] else 'manual client'}")
             for part in ('mcp', 'instructions', 'capture'):
-                if result[part].get('status') == 'needs-action':
+                if result[part].get('status') in {'needs-action', 'cli-fallback', 'launcher'}:
                     print(f"    {part}: {result[part]['detail']}")
         else:
             print(f"  {name}: {result['status']} ({result['detail']})")
@@ -166,6 +166,7 @@ def main():
             print(f"    project instructions: {client['workflow_file']}")
     print(f"  MCP bridge: {bridge['status']} ({bridge['detail']})")
     print(f"  Vault: {ROOT / 'vault'}")
+    print(f"  Project CLI: python {args.project.resolve() / '.hivemind/hive.py'} handoff")
     if not args.skip_register and not options["other_client"] and not generic:
         print("  Next: restart active agent sessions in this project; accept normal trust/MCP prompts.")
     if (any(result["status"] == "needs-action" for result in agents.values())
